@@ -52,11 +52,7 @@ stop:
 # ===== Codex 一键切代理/还原 =====
 codex-on:
 	@mkdir -p ~/.codex
-	@cat > ~/.codex/config.toml << 'TOML'
-model           = "gpt-5.5"
-model_provider  = "openai"
-openai_base_url = "http://127.0.0.1:8787/v1"
-TOML
+	@printf 'model           = "gpt-5.5"\nmodel_provider  = "openai"\nopenai_base_url = "http://127.0.0.1:8787/v1"\n' > ~/.codex/config.toml
 	@echo "✅ Codex 已指向本地代理 (DeepSeek)"
 	@echo "   ~/.codex/config.toml 已写入"
 	@echo ""
