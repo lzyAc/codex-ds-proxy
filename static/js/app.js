@@ -286,6 +286,22 @@ async function copyEnv() {
     }
 }
 
+async function copyUnset() {
+    const cmd = 'unset OPENAI_BASE_URL\nunset OPENAI_API_KEY';
+    try {
+        await navigator.clipboard.writeText(cmd);
+        showToast('清空命令已复制！在终端粘贴执行即可', 'success');
+    } catch (e) {
+        const textarea = document.createElement('textarea');
+        textarea.value = cmd;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('清空命令已复制！', 'success');
+    }
+}
+
 // ===== 工具函数 =====
 function formatTokens(n) {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';

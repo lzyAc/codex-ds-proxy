@@ -1,10 +1,10 @@
-.PHONY: setup start start-no-tray stop clean
+.PHONY: setup setup-linux start start-no-tray stop clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python3
 PIP = $(VENV)/bin/pip
 
-# ===== 一键配置环境 =====
+# ===== 一键配置环境（macOS）=====
 setup: $(VENV)
 	@echo "⬆️  升级 pip..."
 	$(PIP) install --upgrade pip --quiet 2>/dev/null || true
@@ -12,6 +12,17 @@ setup: $(VENV)
 	$(PIP) install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn 2>/dev/null || \
 	$(PIP) install -r requirements.txt
 	@echo "✅ 环境配置完成"
+	@echo ""
+	@echo "下一步: make start"
+
+# ===== 一键配置环境（Linux）=====
+setup-linux: $(VENV)
+	@echo "⬆️  升级 pip..."
+	$(PIP) install --upgrade pip --quiet 2>/dev/null || true
+	@echo "🐧 安装 Linux 依赖（不含 macOS 托盘组件）..."
+	$(PIP) install -r requirements-linux.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn 2>/dev/null || \
+	$(PIP) install -r requirements-linux.txt
+	@echo "✅ Linux 环境配置完成"
 	@echo ""
 	@echo "下一步: make start"
 

@@ -16,6 +16,7 @@ Codex DeepSeek Proxy - 桌面应用程序入口
 
 import argparse
 import os
+import platform
 import sys
 import threading
 import time
@@ -31,6 +32,9 @@ import tornado.ioloop
 from config_manager import load_config
 from proxy import start_proxy, stop_proxy, _proxy_running, _proxy_start_time
 from web_ui import make_web_ui_app
+
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
 
 
 def print_banner():
@@ -90,6 +94,7 @@ def _run_tray_main(proxy_host: str, proxy_port: int, web_port: int):
                 None,
                 rumps.MenuItem(title="打开管理面板", callback=self._open_panel),
                 rumps.MenuItem(title="复制终端配置", callback=self._copy_env),
+                rumps.MenuItem(title="复制清空命令", callback=self._copy_unset),
                 None,
                 rumps.MenuItem(title="退出 Codex-DS", callback=self._quit_app),
             ]
@@ -119,6 +124,19 @@ def _run_tray_main(proxy_host: str, proxy_port: int, web_port: int):
             self.menu["复制终端配置"].title = "✅ 已复制到剪贴板"
             def restore():
                 self.menu["复制终端配置"].title = prev
+            threading.Timer(2.0, restore).start()
+
+        def _copy_unset(self, _):
+            import subprocess
+            cmd = (
+                'unset OPENAI_BASE_URL\n'
+                'unset OPENAI_API_KEY'
+            )
+            subprocess.run("pbcopy", input=cmd, text=True)
+            prev = self.menu["复制清空命令"].title
+            self.menu["复制清空命令"].title = "✅ 已复制到剪贴板"
+            def restore():
+                self.menu["复制清空命令"].title = prev
             threading.Timer(2.0, restore).start()
 
         def _restart_proxy(self, _):
@@ -158,7 +176,10 @@ def main():
     web_port = args.port or 8788
     proxy_port = args.proxy_port or config.get("proxy_port", 8787)
     proxy_host = config.get("proxy_host", "127.0.0.1")
-    show_tray = not args.no_tray
+    show_tray = (not args.no_tray) and IS_MACOS
+    if not IS_MACOS and not args.no_tray:
+        print(f"🖥️  当前系统: {platform.system()}，系统托盘不可用，自动切为终端模式")
+        print()
 
     # 检查 API Key
     api_key = config.get("deepseek_api_key", "")

@@ -8,25 +8,37 @@ macOS 原生支持：菜单栏托盘，一键启动。
 
 | 项目 | 要求 | 说明 |
 |------|------|------|
-| 操作系统 | **仅限 macOS 11.0+** | 托盘功能依赖 Cocoa 框架，Windows/Linux 不可用 |
-| Python | **3.9 ~ 3.12** | macOS 自带即可，`python3 --version` 确认 |
+| 操作系统 | **macOS 11.0+ / Linux** | macOS 有系统托盘；Linux 自动使用终端模式 |
+| Python | **3.9 ~ 3.12** | `python3 --version` 确认 |
 | Codex CLI | **v0.80.0+** | `brew install codex` 或从 openai/codex 仓库安装 |
 | DeepSeek API Key | 必需 | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) 注册获取（需充值） |
-| 网络 | 能访问 `api.deepseek.com` | 国内直连通常没问题，不需要代理 |
-| 磁盘空间 | ~100MB | 虚拟环境 + 依赖 |
+| 网络 | 能访问 `api.deepseek.com` | 国内直连通常没问题 |
+| 磁盘空间 | ~100MB（macOS）/ ~50MB（Linux） | 虚拟环境 + 依赖 |
 
 **不支持的环境：**
 
-- **Windows / Linux**：菜单栏托盘基于 macOS Cocoa，在这些系统上无法运行。可以先去掉托盘功能（`make start-no-tray`）在 Linux 上使用，但未完整测试。
-- **Python 3.13+**：依赖 `pyobjc-core==10.3.1` 暂无预编译 wheel，需降级到 3.12。
+- **Windows**：未适配，但可以通过 WSL2 在 Linux 模式下运行。
+- **Python 3.13+**：macOS 依赖 `pyobjc-core==10.3.1` 暂无预编译 wheel。
 
 ## 快速开始
+
+### macOS
 
 ```bash
 cd ~/codex-ds
 make setup    # 一键创建虚拟环境 + 安装依赖
 make start    # 启动（系统托盘 + 自动打开管理面板）
 ```
+
+### Linux
+
+```bash
+cd ~/codex-ds
+make setup-linux    # 安装依赖（不含 macOS 托盘组件）
+make start          # 启动（自动使用终端模式）
+```
+
+程序会自动检测系统为 Linux，跳过托盘功能，直接以终端模式运行。
 
 浏览器自动打开管理面板 `http://127.0.0.1:8788`，填入 DeepSeek API Key 即可。菜单栏出现 🔄 图标。
 
@@ -85,7 +97,8 @@ codex "你的问题"
 
 | 命令 | 说明 |
 |------|------|
-| `make setup` | 创建虚拟环境 + 安装依赖 |
+| `make setup` | 创建虚拟环境 + 安装依赖（macOS） |
+| `make setup-linux` | 创建虚拟环境 + 安装依赖（Linux，无托盘组件） |
 | `make start` | 启动代理（系统托盘 + 自动打开面板） |
 | `make start-no-tray` | 启动代理（无托盘，终端模式） |
 | `make stop` | 停止代理 |
@@ -116,7 +129,7 @@ codex "你的问题"
 | 配置 | API Key、Base URL、默认模型、Provider 选择 |
 | 模型映射 | 自定义 OpenAI → DeepSeek 模型名映射 |
 | 请求日志 | 实时查看每次请求的转发情况 |
-| 环境变量 | 一键复制终端配置命令 |
+| 环境变量 | 一键复制/清空终端配置命令 |
 
 ## 多模型支持（Provider 架构）
 
