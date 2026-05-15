@@ -1,4 +1,4 @@
-.PHONY: setup setup-linux config start start-no-tray stop clean
+.PHONY: setup setup-linux config start start-no-tray stop clean codex-on codex-off
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python3
@@ -48,6 +48,29 @@ start-no-tray:
 stop:
 	@echo "⏹️  停止代理..."
 	@pkill -f "python3.*app.py" 2>/dev/null && echo "✅ 已停止" || echo "⚠️  代理未在运行"
+
+# ===== Codex 一键切代理/还原 =====
+codex-on:
+	@mkdir -p ~/.codex
+	@cat > ~/.codex/config.toml << 'TOML'
+model           = "gpt-5.5"
+model_provider  = "openai"
+openai_base_url = "http://127.0.0.1:8787/v1"
+TOML
+	@echo "✅ Codex 已指向本地代理 (DeepSeek)"
+	@echo "   ~/.codex/config.toml 已写入"
+	@echo ""
+	@echo "   ⚠️  还需确保代理在运行: make start"
+	@echo "   ⚠️  codex 还需要 API Key 环境变量:"
+	@echo "       export OPENAI_API_KEY=deepseek-proxy"
+
+codex-off:
+	@rm -f ~/.codex/config.toml
+	@echo "✅ 已删除 ~/.codex/config.toml"
+	@echo "   Codex 恢复为默认配置（直连 OpenAI）"
+	@echo ""
+	@echo "   ⚠️  也别忘了清空环境变量:"
+	@echo "       unset OPENAI_BASE_URL OPENAI_API_KEY"
 
 # ===== 清理 =====
 clean:
