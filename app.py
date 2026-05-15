@@ -168,7 +168,19 @@ def main():
     )
     parser.add_argument("--port", type=int, default=None, help="Web UI 端口")
     parser.add_argument("--proxy-port", type=int, default=None, help="代理端口")
+    parser.add_argument("--set-key", type=str, default=None, metavar="KEY",
+                        help="配置 DeepSeek API Key 后退出（适合无桌面服务器）")
     args = parser.parse_args()
+
+    # ─── --set-key 模式：写入 Key 后直接退出 ───
+    if args.set_key:
+        from config_manager import save_config
+        config = load_config()
+        config["deepseek_api_key"] = args.set_key
+        save_config(config)
+        print(f"✅ DeepSeek API Key 已保存到 ~/.codex-ds/config.json")
+        print(f"   现在运行: make start")
+        return
 
     print_banner()
 
@@ -185,7 +197,8 @@ def main():
     api_key = config.get("deepseek_api_key", "")
     if not api_key:
         print("⚠️  尚未配置 DeepSeek API Key")
-        print("   请启动后在管理面板中配置，或访问 https://platform.deepseek.com/api_keys 获取")
+        print("   配置方法: python3 app.py --set-key YOUR_DEEPSEEK_API_KEY")
+        print("   或访问管理面板，或编辑 ~/.codex-ds/config.json")
         print()
 
     if show_tray:

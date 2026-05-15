@@ -40,7 +40,17 @@ make start          # 启动（自动使用终端模式）
 
 程序会自动检测系统为 Linux，跳过托盘功能，直接以终端模式运行。
 
-浏览器自动打开管理面板 `http://127.0.0.1:8788`，填入 DeepSeek API Key 即可。菜单栏出现 🔄 图标。
+### 无桌面服务器配置 Key
+
+如果服务器没有浏览器，用命令行配置：
+
+```bash
+make config            # 交互式输入 Key
+# 或直接：
+python3 app.py --set-key YOUR_DEEPSEEK_API_KEY
+```
+
+配好后再 `make start` 启动代理。Proxy 启动后会自动识别已配置的 Key，无需再操作 Web 面板。
 
 然后用 Codex：
 
@@ -99,6 +109,7 @@ codex "你的问题"
 |------|------|
 | `make setup` | 创建虚拟环境 + 安装依赖（macOS） |
 | `make setup-linux` | 创建虚拟环境 + 安装依赖（Linux，无托盘组件） |
+| `make config` | 命令行配置 API Key（适合无桌面服务器） |
 | `make start` | 启动代理（系统托盘 + 自动打开面板） |
 | `make start-no-tray` | 启动代理（无托盘，终端模式） |
 | `make stop` | 停止代理 |

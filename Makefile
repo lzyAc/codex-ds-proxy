@@ -1,4 +1,4 @@
-.PHONY: setup setup-linux start start-no-tray stop clean
+.PHONY: setup setup-linux config start start-no-tray stop clean
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python3
@@ -29,6 +29,11 @@ setup-linux: $(VENV)
 $(VENV):
 	@echo "🐍 创建虚拟环境..."
 	python3 -m venv $(VENV)
+
+# ===== 配置 API Key（适合无桌面服务器）=====
+config:
+	@read -p "🔑 请输入 DeepSeek API Key: " KEY; \
+	$(PYTHON) app.py --set-key "$$KEY"
 
 # ===== 启动 =====
 start:
