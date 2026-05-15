@@ -87,13 +87,15 @@ class BaseProvider(ABC):
             elif tool_type in self.unsupported_tools():
                 continue
             else:
-                converted.append(tool)
+                # 未知工具类型默认丢弃，避免传到不支持的 API
+                continue
         return converted
 
     def unsupported_tools(self) -> set:
         """返回当前 provider 不支持的工具类型集合"""
-        return {"web_search", "web_search_preview", "code_interpreter",
-                "file_search", "computer_use_preview", "image_generation"}
+        return {"web_search", "web_search_preview", "tool_search",
+                "code_interpreter", "file_search", "computer_use_preview",
+                "image_generation"}
 
     def convert_tool_choice(self, tool_choice):
         if isinstance(tool_choice, str):
