@@ -472,6 +472,22 @@ def _responses_to_chat(body: dict, mapped_model: str, provider, history: list) -
     return chat
 
 
+# ─── 上下文压缩桩（DeepSeek 无此接口）─────────────────────────
+
+class CompactHandler(tornado.web.RequestHandler):
+    """POST /v1/responses/compact — 返回原始消息（无操作压缩）"""
+    async def post(self):
+        try:
+            body = json_decode(self.request.body)
+        except Exception:
+            self.set_status(400)
+            self.finish({"error": {"message": "invalid body"}})
+            return
+        # 原样返回消息列表，不做压缩
+        messages = body.get("messages", [])
+        self.finish({"messages": messages, "compacted": False})
+
+
 # ─── 兜底转发 / 健康检查 ──────────────────────────────────────
 
 class CatchAllHandler(tornado.web.RequestHandler):
@@ -512,6 +528,7 @@ def make_proxy_app() -> tornado.web.Application:
     return tornado.web.Application([
         (r"/v1/models(?:/(.*))?", ModelsHandler),
         (r"/v1/chat/completions", ChatCompletionsHandler),
+        (r"/v1/responses/compact", CompactHandler),
         (r"/v1/responses", ResponsesWsHandler),
         (r"/v1/(.*)", CatchAllHandler),
         (r"/health", HealthHandler),
