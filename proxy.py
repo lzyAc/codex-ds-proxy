@@ -483,9 +483,13 @@ class CompactHandler(tornado.web.RequestHandler):
             self.set_status(400)
             self.finish({"error": {"message": "invalid body"}})
             return
-        # 原样返回消息列表，不做压缩
-        messages = body.get("messages", [])
-        self.finish({"messages": messages, "compacted": False})
+        # Debug: 看看 Codex 发了什么
+        print(f"[Compact] keys={list(body.keys())}", flush=True)
+        # 把 output 字段和输入内容一起返回
+        self.finish({
+            "output": body.get("input", body.get("messages", [])),
+            "compacted": False
+        })
 
 
 # ─── 兜底转发 / 健康检查 ──────────────────────────────────────
