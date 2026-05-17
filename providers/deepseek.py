@@ -40,7 +40,10 @@ class DeepSeekProvider(BaseProvider):
         )
         resp = await self._http.fetch(req, raise_error=False)
         if resp.code != 200:
-            raise tornado.httpclient.HTTPClientError(resp.code, resp.body.decode(errors="replace")[:500])
+            err_body = resp.body.decode(errors="replace")[:1000]
+            error = tornado.httpclient.HTTPClientError(resp.code, err_body)
+            error.response = resp  # 保存响应对象以便日志记录
+            raise error
         return json.loads(resp.body)
 
     async def stream_chat_completion(self, body: dict) -> AsyncGenerator[dict, None]:
@@ -56,10 +59,10 @@ class DeepSeekProvider(BaseProvider):
         )
         resp = await self._http.fetch(req, raise_error=False)
         if resp.code != 200:
-            raise tornado.httpclient.HTTPClientError(
-                resp.code,
-                resp.body.decode(errors="replace")[:500]
-            )
+            err_body = resp.body.decode(errors="replace")[:1000]
+            error = tornado.httpclient.HTTPClientError(resp.code, err_body)
+            error.response = resp  # 保存响应对象以便日志记录
+            raise error
 
         # 解析 SSE 流式响应
         raw = resp.body.decode("utf-8", errors="replace")

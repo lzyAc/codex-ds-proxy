@@ -62,9 +62,10 @@ def open_browser(port: int, delay: float = 1.5):
 def _run_tornado_in_thread(web_port: int, proxy_host: str, proxy_port: int):
     """在独立线程中运行 Tornado（代理 + Web UI）"""
     import tornado.ioloop
+    import asyncio
 
-    loop = tornado.ioloop.IOLoop()
-    loop.make_current()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     # 启动代理服务器
     start_proxy(host=proxy_host, port=proxy_port)
@@ -73,7 +74,7 @@ def _run_tornado_in_thread(web_port: int, proxy_host: str, proxy_port: int):
     web_app = make_web_ui_app()
     web_app.listen(web_port, address="127.0.0.1")
 
-    loop.start()
+    loop.run_forever()
 
 
 # ─── 系统托盘（主线程运行）────────────────────────────────────
@@ -156,6 +157,32 @@ def _run_tray_main(proxy_host: str, proxy_port: int, web_port: int):
     TrayApp().run()
 
 
+# ─── 使用说明 ──────────────────────────────────────────────────────
+
+def _print_usage(proxy_port: int):
+    """打印各客户端接入说明"""
+    print("📋 客户端接入方式：")
+    print()
+    print("  ▸ Codex CLI — 在当前终端执行：")
+    print(f"    export OPENAI_BASE_URL=http://127.0.0.1:{proxy_port}/v1")
+    print( '    export OPENAI_API_KEY="deepseek-proxy"')
+    print()
+    print("    或一键配置：make codex-on && export OPENAI_API_KEY=deepseek-proxy")
+    print("    恢复直连：  make codex-off && unset OPENAI_BASE_URL OPENAI_API_KEY")
+    print()
+    print("  ▸ Claude CLI — 在当前终端执行：")
+    print(f"    export ANTHROPIC_BASE_URL=http://127.0.0.1:{proxy_port}")
+    print( '    export ANTHROPIC_API_KEY="deepseek-proxy"')
+    print()
+    print("    或一键配置：make claude-on（然后复制输出的 export 命令执行）")
+    print("    恢复直连：  make claude-off（然后复制输出的 unset 命令执行）")
+    print()
+    print("  ▸ Claude Desktop — 图形界面中设置：")
+    print(f"    API Base URL: http://127.0.0.1:{proxy_port}")
+    print( '    API Key:      deepseek-proxy')
+    print()
+
+
 # ─── 主入口 ──────────────────────────────────────────────────────
 
 def main():
@@ -207,6 +234,7 @@ def main():
         print(f"🌐 管理面板: http://127.0.0.1:{web_port}")
         print(f"📌 系统托盘: 菜单栏可见 🔄 图标")
         print()
+        _print_usage(proxy_port)
 
         # Tornado 放入后台线程
         threading.Thread(
@@ -237,12 +265,7 @@ def main():
 
         print(f"🌐 管理面板: http://127.0.0.1:{web_port}")
         print()
-        print("📋 在另一个终端中设置环境变量以使用 Codex CLI：")
-        print(f"   export OPENAI_BASE_URL=http://127.0.0.1:{proxy_port}/v1")
-        print('   export OPENAI_API_KEY="deepseek-proxy"')
-        print()
-        print("   然后直接运行 codex 命令即可使用 DeepSeek")
-        print()
+        _print_usage(proxy_port)
         print("=" * 50)
         print("按 Ctrl+C 停止所有服务")
         print()

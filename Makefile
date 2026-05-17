@@ -1,4 +1,4 @@
-.PHONY: setup setup-linux config start start-no-tray stop clean codex-on codex-off
+.PHONY: setup setup-linux config start start-no-tray stop clean codex-on codex-off claude-on claude-off
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python3
@@ -67,6 +67,20 @@ codex-off:
 	@echo ""
 	@echo "   ⚠️  也别忘了清空环境变量:"
 	@echo "       unset OPENAI_BASE_URL OPENAI_API_KEY"
+
+# ===== Claude 一键切代理/还原 =====
+claude-on:
+	@echo "✅ Claude 代理配置：在当前终端中执行以下命令"
+	@echo ""
+	@echo "   export ANTHROPIC_BASE_URL=http://127.0.0.1:8787"
+	@echo "   export ANTHROPIC_API_KEY=deepseek-proxy"
+	@echo ""
+	@echo "   ⚠️  还需确保代理在运行: make start"
+
+claude-off:
+	@echo "✅ 还原 Claude 直连：在当前终端中执行以下命令"
+	@echo ""
+	@echo "   unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY"
 
 # ===== 清理 =====
 clean:

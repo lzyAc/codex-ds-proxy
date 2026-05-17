@@ -1,8 +1,8 @@
 # Codex DeepSeek Proxy
 
-让 OpenAI Codex CLI 通过本地代理无缝接入 DeepSeek，享受高性价比的 AI 编程体验。
+让 OpenAI Codex CLI / Claude Desktop / Claude CLI 通过本地代理无缝接入 DeepSeek，享受高性价比的 AI 编程体验。
 
-macOS 原生支持：菜单栏托盘，一键启动。
+macOS 原生支持：菜单栏托盘，一键启动。Linux 服务器可用。
 
 ## 环境要求
 
@@ -20,103 +20,91 @@ macOS 原生支持：菜单栏托盘，一键启动。
 - **Windows**：未适配，但可以通过 WSL2 在 Linux 模式下运行。
 - **Python 3.13+**：macOS 依赖 `pyobjc-core==10.3.1` 暂无预编译 wheel。
 
-## 快速开始
+## 三步启动
 
-### macOS
-
-```bash
-cd ~/codex-ds
-make setup    # 一键创建虚拟环境 + 安装依赖
-make start    # 启动（系统托盘 + 自动打开管理面板）
-```
-
-### Linux
+### 1. 安装 & 配置 Key
 
 ```bash
-cd ~/codex-ds
-make setup-linux    # 安装依赖（不含 macOS 托盘组件）
-make start          # 启动（自动使用终端模式）
+cd codex-ds-proxy
+
+# macOS
+make setup
+
+# Linux
+make setup-linux
+make config       # 命令行输入 DeepSeek API Key
 ```
 
-程序会自动检测系统为 Linux，跳过托盘功能，直接以终端模式运行。
+macOS 有桌面环境的话，可以启动后在 `http://127.0.0.1:8788` 面板里配 Key。Linux 无桌面服务器用 `make config` 或 `python3 app.py --set-key YOUR_KEY`。
 
-### 无桌面服务器配置 Key
-
-如果服务器没有浏览器，用命令行配置：
+### 2. 启动代理
 
 ```bash
-make config            # 交互式输入 Key
-# 或直接：
-python3 app.py --set-key YOUR_DEEPSEEK_API_KEY
+make start        # 前台运行，Ctrl+C 停止
 ```
 
-配好后再 `make start` 启动代理。Proxy 启动后会自动识别已配置的 Key，无需再操作 Web 面板。
-
-然后用 Codex：
+Linux 会自动切为终端模式。想后台运行：
 
 ```bash
-export OPENAI_API_KEY=deepseek-proxy
-codex "用 python 输出 hello world"
+nohup make start > /tmp/codex-ds.log 2>&1 &
 ```
 
-## 使用说明
-
-### 第一步：获取 DeepSeek API Key
-
-访问 [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) 创建 Key（需充值，价格远低于 OpenAI）。
-
-### 第二步：启动代理
+验证代理是否正常：
 
 ```bash
-make start            # 桌面模式：系统托盘 + 自动打开浏览器
-make start-no-tray    # 终端模式：不启动托盘
+curl http://127.0.0.1:8787/health      # → {"status":"ok","service":"codex-ds-proxy"}
 ```
 
-管理面板默认在 `http://127.0.0.1:8788`，代理监听 `http://127.0.0.1:8787`。
+### 3. 客户端接入
 
-菜单栏托盘功能：查看代理状态、打开面板、一键复制终端配置、退出。
-
-### 第三步：配置
-
-在管理面板「配置」页：
-- 填入 DeepSeek API Key
-- 选择默认模型（推荐 `deepseek-v4-pro`）
-- 点击「测试连接」验证
-- 点击「保存配置」
-
-### 第四步：配置 Codex
-
-创建 `~/.codex/config.toml`：
-
-```toml
-model           = "gpt-5.5"
-model_provider  = "openai"
-openai_base_url = "http://127.0.0.1:8787/v1"
-```
-
-### 第五步：使用
+**Codex CLI — 一键配置：**
 
 ```bash
+make codex-on                           # 写入 ~/.codex/config.toml
 export OPENAI_API_KEY=deepseek-proxy
 codex "你的问题"
 ```
 
-代理会自动将 `gpt-5.5` 映射为 `deepseek-v4-pro`，所有 API 请求转发至 DeepSeek。
+恢复直连 OpenAI：`make codex-off && unset OPENAI_API_KEY OPENAI_BASE_URL`
+
+**Claude CLI — 一键配置：**
+
+```bash
+make claude-on                          # 显示环境变量命令
+# 复制输出的两条 export 命令执行
+claude "你的问题"
+```
+
+恢复直连 Anthropic：`make claude-off` → 复制 unset 命令执行。
+
+**Claude Desktop：**
+
+设置 → API Base URL 填 `http://127.0.0.1:8787`，API Key 填 `deepseek-proxy`。
+
+---
+
+代理自动将 `gpt-5.5`、`claude-sonnet-4-*` 等映射为 `deepseek-v4-pro`，请求转发至 DeepSeek。
 
 ## Make 命令
 
 | 命令 | 说明 |
 |------|------|
-| `make setup` | 创建虚拟环境 + 安装依赖（macOS） |
-| `make setup-linux` | 创建虚拟环境 + 安装依赖（Linux，无托盘组件） |
-| `make config` | 命令行配置 API Key（适合无桌面服务器） |
-| `make start` | 启动代理（系统托盘 + 自动打开面板） |
-| `make start-no-tray` | 启动代理（无托盘，终端模式） |
+| `make setup` | 安装依赖（macOS，含托盘组件） |
+| `make setup-linux` | 安装依赖（Linux，无托盘组件） |
+| `make config` | 命令行输入 DeepSeek API Key |
+| `make start` | 启动代理 |
+| `make start-no-tray` | 启动代理（强制终端模式） |
 | `make stop` | 停止代理 |
+| `make codex-on` | Codex CLI 一键指向代理 |
+| `make codex-off` | Codex CLI 恢复直连 OpenAI |
+| `make claude-on` | Claude CLI 一键指向代理（显示命令） |
+| `make claude-off` | Claude CLI 恢复直连 Anthropic（显示命令） |
 | `make clean` | 清理虚拟环境和缓存 |
 
 ## 功能特性
 
+- **多客户端支持**：Codex CLI、Claude Desktop、Claude CLI 均可接入
+- **Anthropic API 兼容**：`/v1/messages` 端点，完整支持 Messages API 格式
 - **系统托盘**：macOS 菜单栏图标，查看状态、打开面板、复制配置、退出
 - **零配置代理**：拦截 Codex 的 OpenAI API 请求，自动转发至 DeepSeek
 - **WebSocket 支持**：完整支持 Codex 的 Responses API（WebSocket 协议）
@@ -234,6 +222,7 @@ LLM API (DeepSeek / 其他 Provider)
 | `config_manager.py` | 配置文件读写（`~/.codex-ds/config.json`） |
 | `autostart.py` | macOS LaunchAgent 开机自启 |
 | `providers/` | Provider 抽象层：支持多模型厂商扩展 |
+| `anthropic_adapter.py` | Anthropic Messages API ↔ OpenAI 格式互转 |
 
 ### 协议转换细节
 

@@ -67,16 +67,21 @@ def _add_log(entry: dict) -> None:
 # ─── HTTP Chat Completions 处理器 ──────────────────────────────
 
 class ModelsHandler(tornado.web.RequestHandler):
-    """GET /v1/models — 返回可用模型列表"""
+    """GET /v1/models — 返回可用模型列表（OpenAI + Anthropic 格式兼容）"""
     def get(self, _subpath: str = ""):
         config = load_config()
         provider = get_provider(config=config)
+        deepseek_models = provider.meta.get("models", [])
+        # Claude 模型名 → 后端用 DeepSeek
+        claude_models = [
+            {"id": "claude-sonnet-4-20250514", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-opus-4-20250514", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-3.5-sonnet", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-3.5-haiku", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+        ]
         self.finish({
             "object": "list",
-            "data": [
-                {"id": m["id"], "object": "model", "created": 1710000000, "owned_by": "deepseek"}
-                for m in provider.meta.get("models", [])
-            ],
+            "data": deepseek_models + claude_models,
         })
 
 
@@ -153,17 +158,91 @@ class ChatCompletionsHandler(tornado.web.RequestHandler):
             self.write(line)
             chunk_count += 1
             if chunk_count % 10 == 0:
-                await self.flush()
+                self.flush()
 
-        await self.flush()
+        self.flush()
         _add_log({
             "time": datetime.now(CST).isoformat(), "model_original": orig,
             "model_mapped": mapped, "stream": True, "status": "success",
             "duration_ms": int((time.time() - t0) * 1000), "tokens": chunk_count,
         })
 
-    async def flush(self):
-        await self.request.connection.dispatch(lambda: None)
+
+# ─── Anthropic Messages API 处理器 ───────────────────────────
+
+class AnthropicMessagesHandler(tornado.web.RequestHandler):
+    """POST /v1/messages — Anthropic Messages API → DeepSeek Chat Completions"""
+
+    async def post(self):
+        config = load_config()
+        provider = get_provider(config=config)
+
+        if not provider.get_api_key():
+            self.set_status(500)
+            self.finish({"type": "error", "error": {"type": "authentication_error",
+                         "message": "API Key 未配置"}})
+            return
+
+        try:
+            body = json_decode(self.request.body)
+        except Exception:
+            self.set_status(400)
+            self.finish({"type": "error", "error": {"type": "invalid_request_error",
+                         "message": "无效的请求体"}})
+            return
+
+        from anthropic_adapter import anthropic_to_openai, openai_to_anthropic, stream_anthropic
+        orig_model = body.get("model", "unknown")
+
+        # 转为 OpenAI 格式
+        chat_body = anthropic_to_openai(body)
+        chat_body["stream"] = True
+
+        if not chat_body.get("messages"):
+            # 如果消息为空，返回错误而不是发给 DeepSeek
+            self.set_status(400)
+            self.finish({"type": "error", "error": {"type": "invalid_request_error",
+                         "message": f"No messages to process. Input keys: {list(body.keys())}"}})
+            return
+
+        t0 = time.time()
+        try:
+            # SSE 响应头延迟到 stream_anthropic 成功获取首个事件后再设置
+            logger.info(f"Anthropic→OpenAI body: model={chat_body.get('model')}, msgs={len(chat_body.get('messages',[]))}, tools={len(chat_body.get('tools',[]))}, has_thinking={'thinking' in chat_body}")
+            await stream_anthropic(provider, chat_body, orig_model, self)
+
+            _add_log({
+                "time": datetime.now(CST).isoformat(),
+                "model_original": orig_model,
+                "model_mapped": chat_body["model"],
+                "stream": True, "status": "success",
+                "duration_ms": int((time.time() - t0) * 1000), "tokens": 0,
+            })
+        except tornado.httpclient.HTTPClientError as e:
+            err_detail = str(e.response.body)[:500] if e.response else str(e)
+            print(f"[Anthropic Error] HTTP {e.code}: {err_detail}", flush=True)
+            msg_roles = [m.get('role','?') for m in chat_body.get('messages',[])]
+            print(f"[Anthropic Error] model={chat_body.get('model')}, msgs={len(chat_body.get('messages',[]))}, roles={msg_roles}", flush=True)
+            _add_log({
+                "time": datetime.now(CST).isoformat(),
+                "model_original": orig_model, "model_mapped": chat_body["model"],
+                "stream": True, "status": "error", "error": str(e)[:100],
+                "duration_ms": int((time.time() - t0) * 1000), "tokens": 0,
+            })
+            self.set_status(502)
+            self.finish({"type": "error", "error": {"type": "api_error",
+                         "message": str(e)[:200]}})
+        except Exception as e:
+            logger.error(f"Anthropic unexpected error: {e}", exc_info=True)
+            _add_log({
+                "time": datetime.now(CST).isoformat(),
+                "model_original": orig_model, "model_mapped": chat_body["model"],
+                "stream": True, "status": "error", "error": str(e)[:100],
+                "duration_ms": int((time.time() - t0) * 1000), "tokens": 0,
+            })
+            self.set_status(502)
+            self.finish({"type": "error", "error": {"type": "api_error",
+                         "message": str(e)[:200]}})
 
 
 # ─── WebSocket Responses API → Chat Completions ────────────────
@@ -483,9 +562,6 @@ class CompactHandler(tornado.web.RequestHandler):
             self.set_status(400)
             self.finish({"error": {"message": "invalid body"}})
             return
-        # Debug: 看看 Codex 发了什么
-        print(f"[Compact] keys={list(body.keys())}", flush=True)
-        # 把 output 字段和输入内容一起返回
         self.finish({
             "output": body.get("input", body.get("messages", [])),
             "compacted": False
@@ -521,6 +597,45 @@ class CatchAllHandler(tornado.web.RequestHandler):
             self.finish({"error": {"message": str(e)[:200]}})
 
 
+class CountTokensHandler(tornado.web.RequestHandler):
+    """POST /v1/messages/count_tokens — Claude token 计数端点"""
+
+    async def post(self):
+        try:
+            body = json_decode(self.request.body)
+        except Exception:
+            self.finish({"input_tokens": 0})
+            return
+
+        from anthropic_adapter import anthropic_to_openai
+        chat_body = anthropic_to_openai(body)
+
+        # 粗略估算 token 数: UTF-8 字节数 / 2
+        total_text = ""
+        for msg in chat_body.get("messages", []):
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_text += content
+            elif isinstance(content, list):
+                total_text += json.dumps(content)
+        for tool in chat_body.get("tools", []):
+            total_text += json.dumps(tool)
+
+        est_tokens = max(1, len(total_text.encode("utf-8")) // 2)
+        self.finish({"input_tokens": est_tokens})
+
+
+class EventLoggingHandler(tornado.web.RequestHandler):
+    """POST /api/event_logging/batch — Claude 遥测，静默忽略"""
+
+    def post(self):
+        self.finish({})
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+
 class HealthHandler(tornado.web.RequestHandler):
     def get(self):
         self.finish({"status": "ok", "service": "codex-ds-proxy"})
@@ -531,7 +646,10 @@ class HealthHandler(tornado.web.RequestHandler):
 def make_proxy_app() -> tornado.web.Application:
     return tornado.web.Application([
         (r"/v1/models(?:/(.*))?", ModelsHandler),
+        (r"/v1/messages/count_tokens", CountTokensHandler),
+        (r"/v1/messages", AnthropicMessagesHandler),
         (r"/v1/chat/completions", ChatCompletionsHandler),
+        (r"/api/event_logging/batch", EventLoggingHandler),
         (r"/v1/responses/compact", CompactHandler),
         (r"/v1/responses", ResponsesWsHandler),
         (r"/v1/(.*)", CatchAllHandler),
