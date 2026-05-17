@@ -61,11 +61,8 @@ def open_browser(port: int, delay: float = 1.5):
 
 def _run_tornado_in_thread(web_port: int, proxy_host: str, proxy_port: int):
     """在独立线程中运行 Tornado（代理 + Web UI）"""
-    import tornado.ioloop
     import asyncio
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
     # 启动代理服务器
     start_proxy(host=proxy_host, port=proxy_port)
@@ -74,7 +71,9 @@ def _run_tornado_in_thread(web_port: int, proxy_host: str, proxy_port: int):
     web_app = make_web_ui_app()
     web_app.listen(web_port, address="127.0.0.1")
 
-    loop.run_forever()
+    # 启动 Tornado 事件循环
+    import tornado.ioloop
+    tornado.ioloop.IOLoop.current().start()
 
 
 # ─── 系统托盘（主线程运行）────────────────────────────────────

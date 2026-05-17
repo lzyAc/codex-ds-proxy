@@ -1,0 +1,46 @@
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Git
+.git/
+.gitignore
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Build artifacts
+dist/
+build/
+*.app
+*.dmg
+*.spec
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Docker (prevent recursive build context)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Config
+config.json

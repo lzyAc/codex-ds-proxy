@@ -85,6 +85,76 @@ claude "你的问题"
 
 代理自动将 `gpt-5.5`、`claude-sonnet-4-*` 等映射为 `deepseek-v4-pro`，请求转发至 DeepSeek。
 
+---
+## 🐳 Docker 部署
+
+无需手动安装 Python 和依赖，一条命令启动。
+
+### 前提条件
+
+- 安装 [Docker](https://docker.com/products/docker-desktop)（macOS / Linux / Windows 都支持）
+- DeepSeek API Key
+
+### 启动
+
+在项目目录下：
+
+```bash
+# 构建镜像并启动（首次会下载基础镜像，约 2-3 分钟）
+docker compose up -d
+
+# 用 .env 文件或直接在命令行传入 API Key
+echo "DEEPSEEK_API_KEY=sk-your-key-here" > .env
+docker compose up -d
+```
+
+一键启动（不克隆仓库）：
+
+```bash
+docker run -d --name codex-ds-proxy \
+  -p 8787:8787 -p 8788:8788 \
+  -e DEEPSEEK_API_KEY=sk-your-key-here \
+  -v codex-ds-config:/root/.codex-ds \
+  $(docker build -q .)
+```
+
+验证代理是否正常：
+
+```bash
+curl http://127.0.0.1:8787/health
+# → {"status":"ok","service":"codex-ds-proxy"}
+```
+
+### 管理面板
+
+浏览器打开 `http://127.0.0.1:8788`，查看请求日志和配置。
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DEEPSEEK_API_KEY` | (空) | **必填**。DeepSeek API Key |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API 地址（私有部署可改） |
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 默认映射模型 |
+| `PROXY_PORT` | `8787` | 代理服务端口 |
+| `WEB_PORT` | `8788` | 管理面板端口 |
+
+### 停止
+
+```bash
+docker compose down
+# 彻底清理数据卷（配置 + 日志）
+docker volume rm codex-ds-proxy_codex-ds-config
+```
+
+### 查看日志
+
+```bash
+docker compose logs -f
+```
+
+---
+
 ## Make 命令
 
 | 命令 | 说明 |

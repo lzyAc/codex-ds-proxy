@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  codex-ds-proxy:
+    build: .
+    container_name: codex-ds-proxy
+    restart: unless-stopped
+    ports:
+      - "8787:8787"   # 代理服务
+      - "8788:8788"   # 管理面板
+    environment:
+      # 必填: 你的 DeepSeek API Key
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      # 可选: 自定义 API Base URL（私有部署）
+      - DEEPSEEK_BASE_URL=https://api.deepseek.com
+      # 可选: 默认模型
+      - DEEPSEEK_MODEL=deepseek-v4-pro
+    volumes:
+      # 配置持久化
+      - codex-ds-config:/root/.codex-ds
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8787/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  codex-ds-config:
