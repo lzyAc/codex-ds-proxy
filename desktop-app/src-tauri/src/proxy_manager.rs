@@ -45,7 +45,7 @@ pub async fn start_proxy(
     let proxy_port = port.unwrap_or(8787);
     let python_path = find_python();
 
-    // 生成临时 config.json
+    // 生成临时 config.json（与 config_manager.py 的格式一致）
     let config_dir = app_handle
         .path()
         .app_config_dir()
@@ -59,6 +59,26 @@ pub async fn start_proxy(
         "proxy_host": "127.0.0.1",
         "proxy_port": proxy_port,
         "auto_start": false,
+        "model_mapping": {
+            "claude-opus-4.6": "deepseek-v4-pro",
+            "claude-opus-4.6-1m": "deepseek-v4-pro",
+            "claude-haiku-4.6": "deepseek-v4-flash",
+            "gpt-5.5": "deepseek-v4-pro"
+        },
+        "providers": {
+            "deepseek": {
+                "name": "DeepSeek",
+                "api_key": api_key,
+                "base_url": "https://api.deepseek.com",
+                "model": "deepseek-v4-pro"
+            }
+        },
+        "available_models": [
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro"},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash"},
+            {"id": "deepseek-chat", "name": "DeepSeek Chat (V3)"},
+            {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner (R1)"}
+        ]
     });
     let config_path = config_dir.join("config.json");
     std::fs::write(
