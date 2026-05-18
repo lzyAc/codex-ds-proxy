@@ -30,7 +30,7 @@ pub fn run() {
             // 系统托盘：点击图标显示窗口
             #[cfg(all(desktop, not(target_os = "windows")))]
             {
-                app.on_tray_icon_event(|_tray_icon, event| {
+                app.on_tray_icon_event(|_tray_icon, _event| {
                     if let Some(window) = _tray_icon.app_handle().get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();

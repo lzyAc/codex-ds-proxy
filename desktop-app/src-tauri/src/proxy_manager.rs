@@ -233,26 +233,6 @@ fn deploy_proxy_scripts(app_handle: &AppHandle) -> Result<std::path::PathBuf, St
     }
 }
 
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
-    fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-        if !dst.exists() {
-            std::fs::create_dir_all(dst)?;
-        }
-        for entry in std::fs::read_dir(src)? {
-            let entry = entry?;
-            let src_path = entry.path();
-            let dst_path = dst.join(entry.file_name());
-            if src_path.is_dir() {
-                copy_dir(&src_path, &dst_path)?;
-            } else {
-                std::fs::copy(&src_path, &dst_path)?;
-            }
-        }
-        Ok(())
-    }
-    copy_dir(src, dst).map_err(|e| format!("复制代理文件失败: {}", e))
-}
-
 // ── 停止代理 ──
 
 #[tauri::command]
