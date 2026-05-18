@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::broadcast;
 
@@ -47,14 +46,10 @@ pub async fn start_proxy(
     // 0. 检查端口是否被占用
     if is_port_in_use(proxy_port).await {
         return Err(format!(
-            "启动失败：端口 {} 已被占用\n\
-             ----------------------------------------\n\
-             可能是另一个代理实例正在运行。\n\
-             请检查：\n\
-             1. 是否有终端窗口在运行 make start\n\
+            "端口 {} 已被占用，请检查：\n\
+             1. 是否有终端在运行 python3 app.py 或 make start\n\
              2. 是否已经打开了一个桌面版\n\
-             3. 在终端执行：lsof -i :{}\n\
-             查看占用端口的进程",
+             3. 在终端执行 lsof -i :{} 查看占用进程",
             proxy_port, proxy_port
         ));
     }
@@ -63,64 +58,43 @@ pub async fn start_proxy(
     let proxy_dir = deploy_proxy_scripts(&app_handle)?;
     let app_script = proxy_dir.join("app.py");
     if !app_script.exists() {
-        return Err(format!("启动失败：找不到代理脚本\n已部署目录: {}\n请重新安装本应用", proxy_dir.display()));
+        return Err(format!("找不到代理脚本，请重新安装应用\n路径: {}", proxy_dir.display()));
     }
 
-    // 2. 设置日志目录
-    let log_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?.join("logs");
+    // 2. 准备日志目录
+    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let log_dir = data_dir.join("logs");
     std::fs::create_dir_all(&log_dir).ok();
     let proxy_log_path = log_dir.join("proxy.log");
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
 
-    // 3. 写运行日志（追加模式）
+    // 3. 写入启动日志
     use std::io::Write;
     let mut log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&proxy_log_path)
+        .create(true).append(true).open(&proxy_log_path)
         .map_err(|e| format!("创建日志文件失败: {}", e))?;
-    writeln!(log_file, "\n=== 代理启动 {} ===", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
-        .map_err(|e| e.to_string())?;
+    writeln!(log_file, "\n=== {} 启动 ===", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
+        .ok();
 
     // 4. 生成 config.json
     std::fs::create_dir_all(&config_dir).ok();
     let config = serde_json::json!({
         "provider": "deepseek",
         "deepseek_api_key": api_key,
-        "deepseek_base_url": "https://api.deepseek.com",
-        "deepseek_model": "deepseek-v4-pro",
-        "proxy_host": "127.0.0.1",
         "proxy_port": proxy_port,
-        "auto_start": false,
         "model_mapping": {
             "claude-opus-4.6": "deepseek-v4-pro",
             "claude-opus-4.6-1m": "deepseek-v4-pro",
             "claude-haiku-4.6": "deepseek-v4-flash",
             "gpt-5.5": "deepseek-v4-pro"
-        },
-        "providers": {
-            "deepseek": {
-                "name": "DeepSeek",
-                "api_key": api_key,
-                "base_url": "https://api.deepseek.com",
-                "model": "deepseek-v4-pro"
-            }
-        },
-        "available_models": [
-            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro"},
-            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash"},
-            {"id": "deepseek-chat", "name": "DeepSeek Chat (V3)"},
-            {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner (R1)"}
-        ]
+        }
     });
     let config_path = config_dir.join("config.json");
     std::fs::write(&config_path, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?)
         .map_err(|e| format!("保存配置失败: {}", e))?;
 
-    // 5. 启动代理并把 stdout/stderr 重定向到日志文件
-    let log_file_clone = proxy_log_path.clone();
+    // 5. 启动 Python 代理
     let python_path = find_python();
-
     let mut child = Command::new(&python_path)
         .arg(app_script.to_string_lossy().to_string())
         .arg("--no-tray")
@@ -128,17 +102,47 @@ pub async fn start_proxy(
         .arg(proxy_port.to_string())
         .current_dir(&proxy_dir)
         .env("HOME", std::env::var("HOME").unwrap_or_default())
-        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("启动代理失败: {}\n请确保已安装 Python：python3 --version", e))?;
+        .map_err(|e| format!("启动失败: {}\n请确保已安装 Python (python3 --version)", e))?;
 
-    // 记录 PID 到日志
-    if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_clone) {
-        let _ = writeln!(log, "PID: {:?}", child.id());
+    // 写 PID
+    writeln!(log_file, "PID: {}", child.id()).ok();
+
+    // 6. 等待一小段时间，检查进程是否存活，并收集启动日志
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+    // 读 stderr（Python 的启动日志输出到这里）
+    let mut startup_logs = String::new();
+    if let Some(stderr) = child.stderr.take() {
+        use tokio::io::AsyncBufReadExt;
+        let mut reader = tokio::io::BufReader::new(stderr).lines();
+        let mut count = 0;
+        while let Ok(Some(line)) = reader.next_line().await {
+            if count < 30 {
+                startup_logs.push_str(&line);
+                startup_logs.push('\n');
+            }
+            writeln!(log_file, "  {}", line).ok();
+            count += 1;
+        }
     }
 
+    // 7. 检查进程是否还在运行
+    let is_alive = child.try_wait().ok().flatten().is_none();
+    if !is_alive {
+        let exit_code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
+        PROXY_RUNNING.store(false, Ordering::SeqCst);
+        let err_msg = format!(
+            "代理进程意外退出 (代码: {})\n\n--- 启动日志 ---\n{}",
+            exit_code, startup_logs
+        );
+        writeln!(log_file, "进程退出, 代码: {}", exit_code).ok();
+        return Err(err_msg);
+    }
+
+    // 8. 标记为运行中
     PROXY_RUNNING.store(true, Ordering::SeqCst);
     {
         let mut running = state.proxy_running.lock().map_err(|e| e.to_string())?;
@@ -151,43 +155,35 @@ pub async fn start_proxy(
         *stop_tx = Some(tx.clone());
     }
 
-    // 后台任务：收集子进程输出到日志
+    // 后台：等进程退出
     let app_clone = app_handle.clone();
     let log_path = proxy_log_path.clone();
     tauri::async_runtime::spawn(async move {
-        let _stdout = child.stdout.take();
-        let _stderr = child.stderr.take();
-
-        // 读取 stderr（Python 日志输出到 stderr）
-        if let Some(stderr) = _stderr {
-            use tokio::io::AsyncBufReadExt;
-            let reader = tokio::io::BufReader::new(stderr);
-            let mut lines = reader.lines();
-            let mut log_file = std::fs::OpenOptions::new()
-                .create(true).append(true).open(&log_path).ok();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(ref mut lf) = log_file {
-                    let _ = writeln!(lf, "  {}", line);
-                }
-            }
-        }
-
         let status = child.wait().await;
         let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
         PROXY_RUNNING.store(false, Ordering::SeqCst);
         let _ = tx.send(());
         if let Ok(mut lf) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
-            let _ = writeln!(lf, "代理进程退出, 代码: {}", exit_code);
+            let _ = writeln!(lf, "进程退出, 代码: {}", exit_code);
         }
-        let _ = app_clone.emit("proxy-stopped", serde_json::json!({
-            "code": exit_code
-        }));
+        let _ = app_clone.emit("proxy-stopped", serde_json::json!({"code": exit_code}));
     });
 
-    wait_for_proxy(proxy_port).await;
+    // 9. 等待 health endpoint 就绪
+    let ready = wait_for_proxy(proxy_port).await;
     let _ = app_handle.emit("proxy-started", serde_json::json!({"port": proxy_port}));
 
-    Ok(format!("代理已启动，端口: {}\n\n运行日志: {}", proxy_port, proxy_log_path.display()))
+    if ready {
+        Ok(format!(
+            "代理已启动 (端口 {})\n\n启动日志路径:\n{}",
+            proxy_port, proxy_log_path.display()
+        ))
+    } else {
+        Ok(format!(
+            "代理进程已启动，但 health check 超时。\n可能仍在启动中，可查看日志:\n{}",
+            proxy_log_path.display()
+        ))
+    }
 }
 
 // ── 部署代理脚本 ──
@@ -367,7 +363,12 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
 // ── 端口检测 ──
 
 async fn is_port_in_use(port: u16) -> bool {
-    TcpStream::connect(format!("127.0.0.1:{}", port)).await.is_ok()
+    reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{}/health", port))
+        .timeout(std::time::Duration::from_secs(1))
+        .send()
+        .await
+        .is_ok()
 }
 
 // ── 辅助函数 ──
@@ -384,17 +385,18 @@ fn find_python() -> String {
     "python3".to_string()
 }
 
-async fn wait_for_proxy(port: u16) {
+async fn wait_for_proxy(port: u16) -> bool {
     let client = reqwest::Client::new();
-    for _ in 0..30 {
+    for _ in 0..10 {
         let resp = client
             .get(format!("http://127.0.0.1:{}/health", port))
             .timeout(std::time::Duration::from_secs(1))
             .send()
             .await;
         if resp.is_ok() {
-            return;
+            return true;
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
+    false
 }
