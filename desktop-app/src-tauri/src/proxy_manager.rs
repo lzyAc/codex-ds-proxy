@@ -1,13 +1,11 @@
-use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::process::Command;
 use tokio::sync::broadcast;
 
 use crate::AppState;
-use tauri::Manager;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -253,7 +251,6 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
 
 // ── 系统托盘事件 ──
 
-#[cfg(all(desktop, not(target_os = "windows")))]
 pub fn handle_tray_event(
     tray: &tauri::tray::TrayIcon,
     event: tauri::tray::TrayIconEvent,

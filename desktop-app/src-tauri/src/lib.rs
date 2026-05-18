@@ -1,7 +1,4 @@
 use std::sync::Mutex;
-use tauri::State;
-use serde::{Deserialize, Serialize};
-use tokio::process::Command;
 use tokio::sync::broadcast;
 
 mod proxy_manager;
@@ -28,13 +25,7 @@ pub fn run() {
             config::get_config,
             config::save_config,
         ])
-        .setup(|app| {
-            #[cfg(all(desktop, not(target_os = "windows")))]
-            {
-                app.on_tray_icon_event(|tray, event| {
-                    proxy_manager::handle_tray_event(tray, event);
-                });
-            }
+        .setup(|_app| {
             Ok(())
         })
         .run(tauri::generate_context!())
