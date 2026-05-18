@@ -227,7 +227,7 @@ class AnthropicMessagesHandler(tornado.web.RequestHandler):
             msg_roles = [m.get('role','?') for m in chat_body.get('messages', [])]
             has_tool_calls = any('tool_calls' in m for m in chat_body.get('messages', []))
             has_tool_msgs = any(m.get('role') == 'tool' for m in chat_body.get('messages', []))
-            logger.info(f"[Proxy] Anthropic→OpenAI body: model={chat_body.get('model')}, msgs={msg_count}, tools={len(chat_body.get('tools',[]))}, tool_calls_in_msgs={has_tool_calls}, tool_msgs={has_tool_msgs}, roles={msg_roles[:20]}{'...' if len(msg_roles)>20 else ''}")
+            logger.info(f"[Proxy] model={orig_model}→{chat_body.get('model')}, msgs={msg_count}, tools={len(chat_body.get('tools',[]))}, tool_calls_in_msgs={has_tool_calls}, tool_msgs={has_tool_msgs}, roles={msg_roles[:20]}{'...' if len(msg_roles)>20 else ''}")
             in_tokens, out_tokens = await stream_anthropic(provider, chat_body, orig_model, self)
 
             _add_log({
