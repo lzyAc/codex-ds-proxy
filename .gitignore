@@ -47,3 +47,5 @@ desktop-app/node_modules/
 desktop-app/dist/
 desktop-app/.vite/
 desktop-app/src-tauri/gen/
+desktop-app/icon.png
+desktop-app/proxy/

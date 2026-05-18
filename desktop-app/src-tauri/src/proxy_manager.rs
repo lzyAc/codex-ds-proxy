@@ -70,12 +70,17 @@ pub async fn start_proxy(
     // 找到代理 python 脚本
     let proxy_script = find_proxy_script(&app_handle)?;
 
-    // 启动 Python 代理进程
+    // 启动 Python 代理进程（设置工作目录为脚本所在目录）
+    let proxy_dir = std::path::Path::new(&proxy_script)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_path_buf();
     let mut child = Command::new(&python_path)
         .arg(&proxy_script)
         .arg("--no-tray")
         .arg("--proxy-port")
         .arg(proxy_port.to_string())
+        .current_dir(&proxy_dir)
         .env("HOME", std::env::var("HOME").unwrap_or_default())
         .kill_on_drop(true)
         .spawn()
@@ -286,17 +291,20 @@ fn find_python() -> String {
 }
 
 fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
-    // 优先使用资源目录中的 app.py
+    // 1. 应用包内资源目录（Tauri bundle 后的路径）
     let resource_dir = app_handle
         .path()
         .resource_dir()
         .map_err(|e| e.to_string())?;
-    let script = resource_dir.join("proxy").join("app.py");
-    if script.exists() {
-        return Ok(script.to_string_lossy().to_string());
+
+    for sub in &["resources/proxy", "proxy"] {
+        let script = resource_dir.join(sub).join("app.py");
+        if script.exists() {
+            return Ok(script.to_string_lossy().to_string());
+        }
     }
 
-    // fallback: 源码目录
+    // 2. 源码同级目录（开发环境）
     let exe_dir = std::env::current_exe()
         .map_err(|e| e.to_string())?
         .parent()
@@ -307,7 +315,13 @@ fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
         return Ok(script.to_string_lossy().to_string());
     }
 
-    Err("找不到代理脚本 app.py".into())
+    // 3. 项目根目录（纯 Python 开发模式）
+    let dev_script = std::path::Path::new("../app.py");
+    if dev_script.exists() {
+        return Ok(dev_script.canonicalize().unwrap_or(dev_script.to_path_buf()).to_string_lossy().to_string());
+    }
+
+    Err("找不到代理脚本 app.py，请确保桌面版包含 Python 代理资源".into())
 }
 
 async fn wait_for_proxy(port: u16) {

@@ -43,7 +43,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": {
+      "resources/proxy/": "../proxy/"
+    },
     "macOS": {
       "minimumSystemVersion": "12.0"
     },
