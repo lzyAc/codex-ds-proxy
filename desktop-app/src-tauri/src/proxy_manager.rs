@@ -356,9 +356,40 @@ fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
         }
     }
 
-    Err(format!("找不到代理脚本 app.py\n请确保:\n1. Python 已安装 (python3 --version)\n2. 应用安装包完整\n3. 或手动启动: cd codex-ds && python3 app.py\n\n查找路径:\n  resource_dir={:?}\n  exe_dir={:?}",
-        resource_dir,
-        std::env::current_exe().map(|e| e.to_string()).unwrap_or_default()))
+    // 4. 从 .app 包内 Resources/proxy/ 目录查找（构建后脚本复制进去的）
+    let bundle_path = resource_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("Resources").join("proxy").join("app.py"));
+    if let Some(ref bp) = bundle_path {
+        if bp.exists() {
+            return Ok(bp.to_string_lossy().to_string());
+        }
+    }
+    // 同样检查 Resources 下的扁平路径
+    let bundle_flat = resource_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("Resources").join("app.py"));
+    if let Some(ref bf) = bundle_flat {
+        if bf.exists() {
+            return Ok(bf.to_string_lossy().to_string());
+        }
+    }
+
+    Err(format!(
+        "启动失败：找不到代理脚本 app.py\n\
+         ----------------------------------------\n\
+         (此信息已复制到剪贴板)\n\
+         请尝试：\n\
+         1. 确保已安装 Python：python3 --version\n\
+         2. 重新安装本应用\n\
+         3. 或终端手动运行：\n\
+            cd codex-ds && python3 app.py\n\
+         ----------------------------------------\n\
+         查找路径:\n  {:?}",
+        resource_dir
+    ))
 }
 
 async fn wait_for_proxy(port: u16) {
