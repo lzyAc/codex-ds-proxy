@@ -26,10 +26,6 @@ jobs:
       - name: 安装前端依赖
         working-directory: desktop-app
         run: npm install
-      - name: 安装 Python 依赖
-        run: |
-          brew install python3
-          python3 -m pip install --break-system-packages -r requirements.txt
       - name: 构建 macOS DMG
         working-directory: desktop-app
         run: npx tauri build --bundles dmg
@@ -51,12 +47,6 @@ jobs:
       - name: 安装前端依赖
         working-directory: desktop-app
         run: npm install
-      - name: 安装 Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: 安装 Python 依赖
-        run: pip install -r requirements.txt
       - name: 构建 Windows 安装包
         working-directory: desktop-app
         run: npx tauri build --bundles nsis
@@ -75,9 +65,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: 安装前端依赖
-        working-directory: desktop-app
-        run: npm install
       - name: 安装系统依赖
         run: |
           sudo apt-get update
@@ -93,9 +80,9 @@ jobs:
             librsvg2-dev \
             python3 \
             python3-pip
-      - name: 安装 Python 依赖
-        run: |
-          pip3 install --break-system-packages -r requirements.txt
+      - name: 安装前端依赖
+        working-directory: desktop-app
+        run: npm install
       - name: 构建 Linux 包
         working-directory: desktop-app
         run: npx tauri build --bundles deb
