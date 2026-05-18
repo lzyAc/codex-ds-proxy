@@ -254,7 +254,7 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
 
 #[cfg(all(desktop, not(target_os = "windows")))]
 pub fn handle_tray_event(
-    tray: &tauri::tray::TrayIcon,
+    _tray: &tauri::tray::TrayIcon,
     event: tauri::tray::TrayIconEvent,
     app_handle: &AppHandle,
 ) {

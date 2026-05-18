@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::State;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tokio::sync::broadcast;
@@ -31,8 +31,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(all(desktop, not(target_os = "windows")))]
             {
-                let handle = app.handle();
-                app.on_tray_event(move |tray, event| {
+                let handle = app.handle().clone();
+                app.on_tray_icon_event(move |tray, event| {
                     proxy_manager::handle_tray_event(tray, event, &handle);
                 });
             }
