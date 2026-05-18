@@ -291,17 +291,14 @@ fn find_python() -> String {
 }
 
 fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
-    // 1. 应用包内资源目录（Tauri bundle 后的路径）
+    // 1. Tauri resource 目录（bundle 后的路径，文件在资源根目录）
     let resource_dir = app_handle
         .path()
         .resource_dir()
         .map_err(|e| e.to_string())?;
-
-    for sub in &["resources/proxy", "proxy"] {
-        let script = resource_dir.join(sub).join("app.py");
-        if script.exists() {
-            return Ok(script.to_string_lossy().to_string());
-        }
+    let script = resource_dir.join("proxy").join("app.py");
+    if script.exists() {
+        return Ok(script.to_string_lossy().to_string());
     }
 
     // 2. 源码同级目录（开发环境）
