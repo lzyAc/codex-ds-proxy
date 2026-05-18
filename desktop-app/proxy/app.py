@@ -27,6 +27,22 @@ from pathlib import Path
 APP_PATH = Path(__file__).parent.absolute()
 sys.path.insert(0, str(APP_PATH))
 
+# ── 自动安装依赖 ──────────────────────────────────────────
+_REQUIRED = ["tornado", "requests"]
+for _pkg in _REQUIRED:
+    try:
+        __import__(_pkg.replace("-", "_"))
+    except ImportError:
+        print(f"[Setup] 正在安装依赖: {_pkg}")
+        import subprocess, sys
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", _pkg, "--quiet"]
+            + (["--break-system-packages"] if sys.platform == "linux" else ["--user"]),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print(f"[Setup] {_pkg} 安装完成")
+# ──────────────────────────────────────────────────────────
+
 import tornado.ioloop
 
 from config_manager import load_config
