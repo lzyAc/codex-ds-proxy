@@ -208,6 +208,10 @@ def main():
         "--no-tray", action="store_true",
         help="不显示系统托盘图标（终端模式）",
     )
+    parser.add_argument(
+        "--no-browser", action="store_true",
+        help="不自动打开浏览器（桌面版调用时使用）",
+    )
     parser.add_argument("--port", type=int, default=None, help="Web UI 端口")
     parser.add_argument("--proxy-port", type=int, default=None, help="代理端口")
     parser.add_argument("--set-key", type=str, default=None, metavar="KEY",
@@ -258,8 +262,9 @@ def main():
             daemon=True,
         ).start()
 
-        # 等 Tornado 就绪后打开浏览器
-        threading.Thread(target=open_browser, args=(web_port,), daemon=True).start()
+        # 等 Tornado 就绪后打开浏览器（桌面版调用时不打开）
+        if not args.no_browser:
+            threading.Thread(target=open_browser, args=(web_port,), daemon=True).start()
 
         # 托盘在主线程运行（阻塞，Cocoa 要求主线程）
         try:
@@ -276,7 +281,8 @@ def main():
         web_app = make_web_ui_app()
         web_app.listen(web_port, address="127.0.0.1")
 
-        threading.Thread(target=open_browser, args=(web_port,), daemon=True).start()
+        if not args.no_browser:
+            threading.Thread(target=open_browser, args=(web_port,), daemon=True).start()
 
         print(f"🌐 管理面板: http://127.0.0.1:{web_port}")
         print()

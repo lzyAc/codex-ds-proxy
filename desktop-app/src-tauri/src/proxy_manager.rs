@@ -124,6 +124,7 @@ pub async fn start_proxy(
     let mut child = Command::new(&python_path)
         .arg(app_script.to_string_lossy().to_string())
         .arg("--no-tray")
+        .arg("--no-browser")
         .arg("--proxy-port")
         .arg(proxy_port.to_string())
         .current_dir(&proxy_dir)
