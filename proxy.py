@@ -85,6 +85,12 @@ class ModelsHandler(tornado.web.RequestHandler):
             {"id": "claude-haiku-4.6", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
             {"id": "claude-opus-4.7", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
             {"id": "claude-sonnet-4.7", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            # 1M 上下文模式
+            {"id": "claude-opus-4.6-1m", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-sonnet-4.6-1m", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-haiku-4.6-1m", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-opus-4.7-1m", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-sonnet-4.7-1m", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
         ]
         self.finish({
             "object": "list",
@@ -207,7 +213,7 @@ class AnthropicMessagesHandler(tornado.web.RequestHandler):
                          "message": "无效的请求体"}})
             return
 
-        from anthropic_adapter import anthropic_to_openai, openai_to_anthropic, stream_anthropic
+        from anthropic_adapter import anthropic_to_openai, openai_to_anthropic, stream_anthropic, is_large_context_model
         orig_model = body.get("model", "unknown")
 
         # 转为 OpenAI 格式
@@ -227,7 +233,10 @@ class AnthropicMessagesHandler(tornado.web.RequestHandler):
             msg_roles = [m.get('role','?') for m in chat_body.get('messages', [])]
             has_tool_calls = any('tool_calls' in m for m in chat_body.get('messages', []))
             has_tool_msgs = any(m.get('role') == 'tool' for m in chat_body.get('messages', []))
-            logger.info(f"[Proxy] model={orig_model}→{chat_body.get('model')}, msgs={msg_count}, tools={len(chat_body.get('tools',[]))}, tool_calls_in_msgs={has_tool_calls}, tool_msgs={has_tool_msgs}, roles={msg_roles[:20]}{'...' if len(msg_roles)>20 else ''}")
+            large_ctx = " [1M]" if is_large_context_model(orig_model) else ""
+            logger.info(f"[Proxy] model={orig_model}→{chat_body.get('model')}{large_ctx}, msgs={msg_count}, "
+                        f"max_tokens={chat_body.get('max_tokens', 'N/A')}, tools={len(chat_body.get('tools',[]))}, "
+                        f"tool_calls={has_tool_calls}, tool_msgs={has_tool_msgs}, roles={msg_roles[:20]}{'...' if len(msg_roles)>20 else ''}")
             in_tokens, out_tokens = await stream_anthropic(provider, chat_body, orig_model, self)
 
             _add_log({

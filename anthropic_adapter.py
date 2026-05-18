@@ -16,6 +16,7 @@ from collections import Counter
 # ─── 模型名映射 ────────────────────────────────────────────
 
 CLAUDE_MODEL_MAP = {
+    # ── 标准模型（普通上下文）──
     "claude-sonnet-4-20250514": "deepseek-v4-pro",
     "claude-sonnet-4-5-20250929": "deepseek-v4-pro",
     "claude-sonnet-4-5-20250915": "deepseek-v4-pro",
@@ -32,7 +33,22 @@ CLAUDE_MODEL_MAP = {
     "claude-haiku-4.6": "deepseek-v4-flash",
     "claude-opus-4.7": "deepseek-v4-pro",
     "claude-sonnet-4.7": "deepseek-v4-pro",
+    # ── 1M 上下文模型（不限制 max_tokens）──
+    "claude-opus-4.6-1m": "deepseek-v4-pro",
+    "claude-sonnet-4.6-1m": "deepseek-v4-pro",
+    "claude-haiku-4.6-1m": "deepseek-v4-flash",
+    "claude-opus-4.7-1m": "deepseek-v4-pro",
+    "claude-sonnet-4.7-1m": "deepseek-v4-pro",
 }
+
+# 1M 上下文模式前缀
+LARGE_CONTEXT_PREFIXES = ("claude-opus-4.6-1m", "claude-sonnet-4.6-1m",
+                          "claude-haiku-4.6-1m", "claude-opus-4.7-1m",
+                          "claude-sonnet-4.7-1m")
+
+def is_large_context_model(model: str) -> bool:
+    """判断是否为 1M 上下文模式模型"""
+    return model in LARGE_CONTEXT_PREFIXES or model.endswith("-1m")
 
 def map_claude_model(model: str) -> str:
     """Claude 模型名 → DeepSeek 模型名"""
@@ -250,8 +266,14 @@ def anthropic_to_openai(body: dict) -> dict:
     }
 
     # max_tokens → max_tokens
+    # 1M 上下文模式：不限制 max_tokens，完全透传
+    # 普通模式：限制 128K（DeepSeek V4 最大输出）
     if "max_tokens" in body:
-        chat["max_tokens"] = min(body["max_tokens"], 8192)
+        orig_model = body.get("model", "")
+        if is_large_context_model(orig_model):
+            chat["max_tokens"] = body["max_tokens"]
+        else:
+            chat["max_tokens"] = min(body["max_tokens"], 131072)
 
     # Anthropic tools → OpenAI tools
     tools = body.get("tools", [])

@@ -36,7 +36,7 @@ class DeepSeekProvider(BaseProvider):
         req = tornado.httpclient.HTTPRequest(
             url=url, method="POST", headers=headers,
             body=json.dumps(body, ensure_ascii=False),
-            request_timeout=120, connect_timeout=30,
+            request_timeout=300, connect_timeout=30,
         )
         resp = await self._http.fetch(req, raise_error=False)
         if resp.code != 200:
@@ -55,7 +55,7 @@ class DeepSeekProvider(BaseProvider):
         req = tornado.httpclient.HTTPRequest(
             url=url, method="POST", headers=headers,
             body=json.dumps(body, ensure_ascii=False),
-            request_timeout=300, connect_timeout=30,
+            request_timeout=600, connect_timeout=30,
         )
         resp = await self._http.fetch(req, raise_error=False)
         if resp.code != 200:
