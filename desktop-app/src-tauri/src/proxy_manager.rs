@@ -108,7 +108,7 @@ pub async fn start_proxy(
         .map_err(|e| format!("启动失败: {}\n请确保已安装 Python (python3 --version)", e))?;
 
     // 写 PID
-    writeln!(log_file, "PID: {}", child.id()).ok();
+    writeln!(log_file, "PID: {:?}", child.id()).ok();
 
     // 6. 等待一小段时间，检查进程是否存活，并收集启动日志
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
