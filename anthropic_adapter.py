@@ -50,8 +50,20 @@ def is_large_context_model(model: str) -> bool:
     """判断是否为 1M 上下文模式模型"""
     return model in LARGE_CONTEXT_PREFIXES or model.endswith("-1m")
 
-def map_claude_model(model: str) -> str:
-    """Claude 模型名 → DeepSeek 模型名"""
+def map_claude_model(model: str, model_mapping: dict = None) -> str:
+    """Claude 模型名 → DeepSeek 模型名
+
+    优先级：config.model_mapping > 硬编码 CLAUDE_MODEL_MAP
+    """
+    # 1. 先查用户自定义映射（config.json model_mapping）
+    if model_mapping:
+        if model in model_mapping:
+            return model_mapping[model]
+        for key, target in model_mapping.items():
+            if model.startswith(key):
+                return target
+
+    # 2. fallback 硬编码映射
     if model in CLAUDE_MODEL_MAP:
         return CLAUDE_MODEL_MAP[model]
     for prefix, target in CLAUDE_MODEL_MAP.items():
@@ -159,8 +171,11 @@ def _merge_adjacent_assistant(messages: list) -> list:
 
 # ─── Request: Anthropic → OpenAI ───────────────────────────
 
-def anthropic_to_openai(body: dict) -> dict:
-    """将 Anthropic Messages 请求转为 OpenAI Chat Completions 请求"""
+def anthropic_to_openai(body: dict, model_mapping: dict = None) -> dict:
+    """将 Anthropic Messages 请求转为 OpenAI Chat Completions 请求
+
+    model_mapping: 用户自定义模型映射（来自 config.json model_mapping），优先于硬编码映射"""
+
     messages = []
 
     # System prompt
@@ -261,7 +276,7 @@ def anthropic_to_openai(body: dict) -> dict:
     messages = _merge_adjacent_assistant(messages)
 
     chat = {
-        "model": map_claude_model(body.get("model", "")),
+        "model": map_claude_model(body.get("model", ""), model_mapping),
         "messages": messages,
     }
 

@@ -216,8 +216,8 @@ class AnthropicMessagesHandler(tornado.web.RequestHandler):
         from anthropic_adapter import anthropic_to_openai, openai_to_anthropic, stream_anthropic, is_large_context_model
         orig_model = body.get("model", "unknown")
 
-        # 转为 OpenAI 格式
-        chat_body = anthropic_to_openai(body)
+        # 转为 OpenAI 格式（传入用户自定义模型映射）
+        chat_body = anthropic_to_openai(body, config.get("model_mapping"))
         chat_body["stream"] = True
 
         if not chat_body.get("messages"):

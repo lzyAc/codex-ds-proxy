@@ -34,6 +34,17 @@ DEFAULT_CONFIG = {
         "codex": "deepseek-v4-pro",
         "codex-mini": "deepseek-v4-flash",
         "gpt-5.5": "deepseek-v4-pro",  # Codex 默认模型
+        # Claude 模型 → DeepSeek 映射（可自定义）
+        "claude-opus-4.6": "deepseek-v4-pro",
+        "claude-sonnet-4.6": "deepseek-v4-pro",
+        "claude-haiku-4.6": "deepseek-v4-flash",
+        "claude-opus-4.7": "deepseek-v4-pro",
+        "claude-sonnet-4.7": "deepseek-v4-pro",
+        "claude-opus-4.6-1m": "deepseek-v4-pro",
+        "claude-sonnet-4.6-1m": "deepseek-v4-pro",
+        "claude-haiku-4.6-1m": "deepseek-v4-flash",
+        "claude-opus-4.7-1m": "deepseek-v4-pro",
+        "claude-sonnet-4.7-1m": "deepseek-v4-pro",
     },
     # 多 provider 配置（可扩展）
     "providers": {
