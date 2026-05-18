@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use tauri::Manager;
 use tokio::sync::broadcast;
 
 mod proxy_manager;
@@ -25,7 +26,14 @@ pub fn run() {
             config::get_config,
             config::save_config,
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            // 系统托盘：点击图标显示窗口
+            #[cfg(all(desktop, not(target_os = "windows")))]
+            {
+                app.on_tray_icon_event(|tray, event| {
+                    proxy_manager::handle_tray_event(tray, event);
+                });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

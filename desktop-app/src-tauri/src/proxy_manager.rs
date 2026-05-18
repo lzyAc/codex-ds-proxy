@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::process::Command;
 use tokio::sync::broadcast;
@@ -43,13 +42,15 @@ pub async fn start_proxy(
     }
 
     let proxy_port = port.unwrap_or(8787);
-    let python_path = find_python();
 
-    // 生成临时 config.json（与 config_manager.py 的格式一致）
+    // 1. 部署 Python 代理到应用数据目录
+    let proxy_dir = deploy_proxy_scripts(&app_handle)?;
+
+    // 2. 生成 config.json
     let config_dir = app_handle
         .path()
         .app_config_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("获取配置目录失败: {}", e))?;
     std::fs::create_dir_all(&config_dir).ok();
     let config = serde_json::json!({
         "provider": "deepseek",
@@ -85,18 +86,24 @@ pub async fn start_proxy(
         &config_path,
         serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| format!("保存配置失败: {}", e))?;
 
-    // 找到代理 python 脚本
-    let proxy_script = find_proxy_script(&app_handle)?;
+    // 3. 启动 Python 代理
+    let python_path = find_python();
+    let app_script = proxy_dir.join("app.py");
 
-    // 启动 Python 代理进程（设置工作目录为脚本所在目录）
-    let proxy_dir = std::path::Path::new(&proxy_script)
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .to_path_buf();
+    if !app_script.exists() {
+        return Err(format!(
+            "启动失败：找不到代理脚本\n\
+             ----------------------------------------\n\
+             已部署目录: {}\n\
+             请尝试重新安装本应用",
+            proxy_dir.display()
+        ));
+    }
+
     let mut child = Command::new(&python_path)
-        .arg(&proxy_script)
+        .arg(app_script.to_string_lossy().to_string())
         .arg("--no-tray")
         .arg("--proxy-port")
         .arg(proxy_port.to_string())
@@ -104,17 +111,14 @@ pub async fn start_proxy(
         .env("HOME", std::env::var("HOME").unwrap_or_default())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("启动代理失败: {}", e))?;
+        .map_err(|e| format!("启动代理失败: {}\n请确保已安装 Python：python3 --version", e))?;
 
     PROXY_RUNNING.store(true, Ordering::SeqCst);
-
-    // 更新状态
     {
         let mut running = state.proxy_running.lock().map_err(|e| e.to_string())?;
         *running = true;
     }
 
-    // 启动后台任务监控代理进程
     let (tx, _) = broadcast::channel::<()>(1);
     {
         let mut stop_tx = state.proxy_stop_tx.lock().map_err(|e| e.to_string())?;
@@ -131,14 +135,78 @@ pub async fn start_proxy(
         }));
     });
 
-    // 等待代理就绪
     wait_for_proxy(proxy_port).await;
-
-    let _ = app_handle.emit("proxy-started", serde_json::json!({
-        "port": proxy_port
-    }));
+    let _ = app_handle.emit("proxy-started", serde_json::json!({"port": proxy_port}));
 
     Ok(format!("代理已启动，端口: {}", proxy_port))
+}
+
+// ── 部署代理脚本 ──
+
+fn deploy_proxy_scripts(app_handle: &AppHandle) -> Result<std::path::PathBuf, String> {
+    // 目标目录: ~/Library/Application Support/com.codex-ds.proxy/proxy/
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取数据目录失败: {}", e))?;
+    let proxy_dir = data_dir.join("proxy");
+
+    // 检查是否已经部署
+    let app_py = proxy_dir.join("app.py");
+    if app_py.exists() {
+        return Ok(proxy_dir);
+    }
+
+    // 需要部署——从源码查找文件
+    let src_dir = find_source_proxy_dir()?;
+    copy_dir_recursive(&src_dir, &proxy_dir)?;
+
+    if app_py.exists() {
+        Ok(proxy_dir)
+    } else {
+        Err(format!("部署代理脚本失败\n请尝试重新安装本应用"))
+    }
+}
+
+fn find_source_proxy_dir() -> Result<std::path::PathBuf, String> {
+    // 从多个可能的位置查找 proxy/ 源码目录
+    let candidates = &[
+        // 相对于可执行文件
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("../../proxy"))),
+        // 相对于工作目录
+        Some(std::path::PathBuf::from("../proxy")),
+        Some(std::path::PathBuf::from("proxy")),
+    ];
+
+    for c in candidates.iter().flatten() {
+        if c.join("app.py").exists() {
+            return Ok(c.canonicalize().unwrap_or(c.to_path_buf()));
+        }
+    }
+
+    Err("找不到代理脚本源码目录".into())
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+        if !dst.exists() {
+            std::fs::create_dir_all(dst)?;
+        }
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                copy_dir(&src_path, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path)?;
+            }
+        }
+        Ok(())
+    }
+    copy_dir(src, dst).map_err(|e| format!("复制代理文件失败: {}", e))
 }
 
 // ── 停止代理 ──
@@ -158,7 +226,6 @@ pub async fn stop_proxy(state: State<'_, AppState>) -> Result<String, String> {
         let _ = tx.send(());
     }
 
-    // 尝试优雅关闭
     let client = reqwest::Client::new();
     let _ = client
         .post("http://127.0.0.1:8788/api/proxy/stop")
@@ -181,7 +248,6 @@ pub async fn stop_proxy(state: State<'_, AppState>) -> Result<String, String> {
 pub async fn get_proxy_status() -> Result<ProxyStatus, String> {
     let running = PROXY_RUNNING.load(Ordering::SeqCst);
     if running {
-        // 从 Web UI 获取状态
         let client = reqwest::Client::new();
         let resp = client
             .get("http://127.0.0.1:8788/api/proxy/status")
@@ -274,28 +340,6 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
     Ok(resp.status().is_success())
 }
 
-// ── 系统托盘事件 ──
-
-pub fn handle_tray_event(
-    tray: &tauri::tray::TrayIcon,
-    event: tauri::tray::TrayIconEvent,
-) {
-    use tauri::tray::MouseButton;
-    use tauri::tray::MouseButtonState;
-
-    if let tauri::tray::TrayIconEvent::Click {
-        button: MouseButton::Left,
-        button_state: MouseButtonState::Up,
-        ..
-    } = event
-    {
-        if let Some(window) = tray.app_handle().get_webview_window("main") {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-    }
-}
-
 // ── 辅助函数 ──
 
 fn find_python() -> String {
@@ -308,55 +352,6 @@ fn find_python() -> String {
         }
     }
     "python3".to_string()
-}
-
-fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
-    // 从 .app 包内 Resources/proxy/ 查找（copy-proxy-to-app.sh 复制进去的）
-    // macOS .app 结构: xxx.app/Contents/Resources/proxy/app.py
-    let resource_dir = app_handle
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?;
-
-    // Resources 目录: app_handle.resource_dir() 返回 xxx.app/Contents/Resources/
-    let bundle_proxy = resource_dir.join("proxy").join("app.py");
-    if bundle_proxy.exists() {
-        return Ok(bundle_proxy.to_string_lossy().to_string());
-    }
-
-    // 开发模式（desktop-app/proxy/app.py）
-    let dev_path = std::path::Path::new("../proxy/app.py");
-    if dev_path.exists() {
-        return Ok(dev_path.canonicalize().unwrap_or(dev_path.to_path_buf()).to_string_lossy().to_string());
-    }
-    let dev_path2 = std::path::Path::new("../../proxy/app.py");
-    if dev_path2.exists() {
-        return Ok(dev_path2.canonicalize().unwrap_or(dev_path2.to_path_buf()).to_string_lossy().to_string());
-    }
-
-    // 可执行文件同级目录
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let exe_proxy = parent.join("proxy").join("app.py");
-            if exe_proxy.exists() {
-                return Ok(exe_proxy.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    Err(format!(
-        "启动失败：找不到代理脚本 app.py\n\
-         ----------------------------------------\n\
-         解决方法：\n\
-         1. 确保已安装 Python：python3 --version\n\
-         2. 运行复制脚本：bash scripts/copy-proxy-to-app.sh\n\
-         3. 或终端手动启动 Python 代理：\n\
-            cd codex-ds && python3 app.py\n\
-         4. 然后重新打开本应用\n\
-         ----------------------------------------\n\
-         查找路径: {:?}",
-        resource_dir
-    ))
 }
 
 async fn wait_for_proxy(port: u16) {
