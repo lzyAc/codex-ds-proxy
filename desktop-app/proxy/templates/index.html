@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codex DeepSeek Proxy</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">🔄</span>
+                <div class="logo-text">
+                    <h1>Codex-DS</h1>
+                    <span class="logo-subtitle">DeepSeek Proxy</span>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a href="#" class="nav-item active" data-panel="dashboard">
+                    <span class="nav-icon">📊</span> 仪表盘
+                </a>
+                <a href="#" class="nav-item" data-panel="config">
+                    <span class="nav-icon">⚙️</span> 配置
+                </a>
+                <a href="#" class="nav-item" data-panel="models">
+                    <span class="nav-icon">🧠</span> 模型映射
+                </a>
+                <a href="#" class="nav-item" data-panel="logs">
+                    <span class="nav-icon">📋</span> 请求日志
+                </a>
+                <a href="#" class="nav-item" data-panel="env">
+                    <span class="nav-icon">💻</span> 环境变量
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="proxy-status" id="proxyStatus">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span class="status-text" id="statusText">检测中...</span>
+                </div>
+                <div class="version">v1.0.0</div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main">
+            <!-- 仪表盘 -->
+            <section class="panel active" id="panel-dashboard">
+                <h2>仪表盘</h2>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statStatus">--</div>
+                        <div class="stat-label">代理状态</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statRequests">0</div>
+                        <div class="stat-label">总请求数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTokens">0</div>
+                        <div class="stat-label">Token 消耗</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statModel">--</div>
+                        <div class="stat-label">当前模型</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>快速操作</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="quick-actions">
+                            <button class="btn btn-primary" id="btnQuickTest" onclick="testConnection()">
+                                🔍 测试 DeepSeek 连接
+                            </button>
+                            <button class="btn btn-secondary" id="btnQuickCheck" onclick="refreshAll()">
+                                🔄 刷新状态
+                            </button>
+                        </div>
+                        <div class="quick-info">
+                            <div class="info-row">
+                                <span class="info-label">代理地址:</span>
+                                <code id="infoProxyUrl">http://127.0.0.1:8787/v1</code>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">管理面板:</span>
+                                <code id="infoWebUrl">http://127.0.0.1:8788</code>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">运行时长:</span>
+                                <span id="infoUptime">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>使用说明</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="instructions">
+                            <div class="instruction-step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <strong>配置 DeepSeek API Key</strong>
+                                    <p>在「配置」页面填入从 <a href="https://platform.deepseek.com/api_keys" target="_blank">platform.deepseek.com</a> 获取的 API Key</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <strong>启动代理服务</strong>
+                                    <p>代理默认在端口 8787 运行，状态指示灯变绿即表示工作中</p>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <strong>设置终端环境变量</strong>
+                                    <pre>export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
+export OPENAI_API_KEY=deepseek-proxy</pre>
+                                </div>
+                            </div>
+                            <div class="instruction-step">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <strong>运行 Codex</strong>
+                                    <p>在同一个终端中直接使用 <code>codex</code> 命令，API 请求会自动走 DeepSeek</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 配置面板 -->
+            <section class="panel" id="panel-config">
+                <h2>DeepSeek API 配置</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>API 连接设置</h3>
+                    </div>
+                    <div class="card-body">
+                        <form id="configForm" onsubmit="saveConfig(event)">
+                            <div class="form-group">
+                                <label for="cfgApiKey">DeepSeek API Key</label>
+                                <input type="password" id="cfgApiKey" class="form-input"
+                                       placeholder="sk-xxxxxxxxxxxxxxxx"
+                                       autocomplete="off">
+                                <span class="form-hint">从 <a href="https://platform.deepseek.com/api_keys" target="_blank">DeepSeek 控制台</a> 获取</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="cfgBaseUrl">Base URL</label>
+                                <input type="text" id="cfgBaseUrl" class="form-input"
+                                       placeholder="https://api.deepseek.com"
+                                       value="https://api.deepseek.com">
+                                <span class="form-hint">默认 https://api.deepseek.com，一般无需修改</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="cfgModel">默认模型</label>
+                                <select id="cfgModel" class="form-input">
+                                    <option value="deepseek-v4-pro">DeepSeek V4 Pro (推荐)</option>
+                                    <option value="deepseek-v4-flash">DeepSeek V4 Flash (快速)</option>
+                                    <option value="deepseek-chat">DeepSeek Chat V3</option>
+                                    <option value="deepseek-reasoner">DeepSeek Reasoner R1</option>
+                                </select>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="cfgProxyHost">代理监听地址</label>
+                                    <input type="text" id="cfgProxyHost" class="form-input"
+                                           value="127.0.0.1" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cfgProxyPort">代理端口</label>
+                                    <input type="number" id="cfgProxyPort" class="form-input"
+                                           value="8787" min="1024" max="65535">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="cfgAutoStart">
+                                    <span>开机自动启动代理服务</span>
+                                </label>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">💾 保存配置</button>
+                                <button type="button" class="btn btn-outline" onclick="testConnection()">🔍 测试连接</button>
+                            </div>
+                        </form>
+
+                        <div id="testResult" class="test-result hidden"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 模型映射面板 -->
+            <section class="panel" id="panel-models">
+                <h2>模型名称映射</h2>
+                <p class="panel-desc">Codex CLI 默认使用 OpenAI 模型名，代理会自动将其映射为 DeepSeek 模型。你可以自定义映射规则。</p>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>映射表</h3>
+                        <button class="btn btn-sm btn-outline" onclick="addMappingRow()">+ 添加规则</button>
+                    </div>
+                    <div class="card-body">
+                        <table class="mapping-table" id="mappingTable">
+                            <thead>
+                                <tr>
+                                    <th>OpenAI 模型名 (源)</th>
+                                    <th></th>
+                                    <th>DeepSeek 模型名 (目标)</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mappingBody">
+                            </tbody>
+                        </table>
+                        <div class="form-actions" style="margin-top: 1rem;">
+                            <button class="btn btn-primary" onclick="saveMappings()">💾 保存映射</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 请求日志面板 -->
+            <section class="panel" id="panel-logs">
+                <h2>请求日志</h2>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>最近请求</h3>
+                        <div class="header-actions">
+                            <button class="btn btn-sm btn-outline" onclick="refreshLogs()">🔄 刷新</button>
+                            <button class="btn btn-sm btn-outline" onclick="clearLogs()">🗑️ 清空</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-list" id="logList">
+                            <div class="log-empty">暂无请求记录</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 环境变量面板 -->
+            <section class="panel" id="panel-env">
+                <h2>环境变量设置</h2>
+                <p class="panel-desc">将此配置添加到你的 Shell 配置文件（~/.zshrc 或 ~/.bashrc），或每次在终端中手动执行。</p>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>终端配置</h3>
+                        <button class="btn btn-sm btn-outline" onclick="copyEnv()">📋 复制配置</button>
+                        <button class="btn btn-sm btn-outline" onclick="copyUnset()">🗑 清空配置</button>
+                    </div>
+                    <div class="card-body">
+                        <pre class="env-code" id="envCode"># 加载中...</pre>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
