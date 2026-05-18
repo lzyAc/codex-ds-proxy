@@ -43,19 +43,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../proxy/app.py",
-      "../proxy/proxy.py",
-      "../proxy/config_manager.py",
-      "../proxy/web_ui.py",
-      "../proxy/anthropic_adapter.py",
-      "../proxy/providers/__init__.py",
-      "../proxy/providers/base.py",
-      "../proxy/providers/deepseek.py",
-      "../proxy/templates/index.html",
-      "../proxy/static/css/style.css",
-      "../proxy/static/js/app.js"
-    ],
+    "resources": {
+      "proxy": "../proxy"
+    },
     "macOS": {
       "minimumSystemVersion": "12.0"
     },

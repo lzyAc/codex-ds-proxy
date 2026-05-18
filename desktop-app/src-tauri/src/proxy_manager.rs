@@ -311,34 +311,54 @@ fn find_python() -> String {
 }
 
 fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
-    // 1. Tauri resource 目录（bundle 后的路径，文件在资源根目录）
+    // 1. Tauri resource 目录（bundle 后文件直接展平在资源根目录）
     let resource_dir = app_handle
         .path()
         .resource_dir()
         .map_err(|e| e.to_string())?;
-    let script = resource_dir.join("proxy").join("app.py");
-    if script.exists() {
-        return Ok(script.to_string_lossy().to_string());
+
+    // 尝试多种路径：直接 app.py / proxy/app.py / resources/app.py
+    let candidates = &[
+        resource_dir.join("app.py"),              // 展平在资源根目录
+        resource_dir.join("proxy").join("app.py"), // proxy 子目录
+        resource_dir.join("resources").join("app.py"), // resources 子目录
+    ];
+    for c in candidates {
+        if c.exists() {
+            return Ok(c.to_string_lossy().to_string());
+        }
     }
 
-    // 2. 源码同级目录（开发环境）
-    let exe_dir = std::env::current_exe()
-        .map_err(|e| e.to_string())?
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let script = exe_dir.join("proxy").join("app.py");
-    if script.exists() {
-        return Ok(script.to_string_lossy().to_string());
+    // 2. 可执行文件同级目录（开发环境，target/release/ 下）
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let manual = [
+                parent.join("proxy").join("app.py"),
+                parent.join("../../../proxy/app.py"),
+            ];
+            for c in &manual {
+                if c.exists() {
+                    return Ok(c.to_string_lossy().to_string());
+                }
+            }
+        }
     }
 
-    // 3. 项目根目录（纯 Python 开发模式）
-    let dev_script = std::path::Path::new("../app.py");
-    if dev_script.exists() {
-        return Ok(dev_script.canonicalize().unwrap_or(dev_script.to_path_buf()).to_string_lossy().to_string());
+    // 3. 从源码根目录查找（开发模式：desktop-app/ 下）
+    let dev_paths = [
+        "../app.py",                      // 从 src-tauri/ 到 desktop-app/
+        "../../app.py",                   // 到 codex-ds 根目录
+    ];
+    for p in &dev_paths {
+        let pp = std::path::Path::new(p);
+        if pp.exists() {
+            return Ok(pp.canonicalize().unwrap_or(pp.to_path_buf()).to_string_lossy().to_string());
+        }
     }
 
-    Err("找不到代理脚本 app.py，请确保桌面版包含 Python 代理资源".into())
+    Err(format!("找不到代理脚本 app.py\n请确保:\n1. Python 已安装 (python3 --version)\n2. 应用安装包完整\n3. 或手动启动: cd codex-ds && python3 app.py\n\n查找路径:\n  resource_dir={:?}\n  exe_dir={:?}",
+        resource_dir,
+        std::env::current_exe().map(|e| e.to_string()).unwrap_or_default()))
 }
 
 async fn wait_for_proxy(port: u16) {
