@@ -32,6 +32,14 @@ jobs:
       - name: 构建 macOS DMG
         working-directory: desktop-app
         run: npx tauri build --bundles dmg
+      - name: 复制 Python 代理到应用包
+        working-directory: desktop-app
+        run: bash scripts/copy-proxy-to-app.sh
+      - name: 重新打包 DMG（含 Python 资源）
+        working-directory: desktop-app
+        run: |
+          # 重新生成 DMG（包含已复制资源的 .app）
+          npx tauri build --bundles dmg
       - name: 上传 DMG 到 Release
         uses: softprops/action-gh-release@v1
         with:
