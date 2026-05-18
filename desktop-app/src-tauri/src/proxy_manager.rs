@@ -144,74 +144,44 @@ pub async fn start_proxy(
 // ── 部署代理脚本 ──
 
 fn deploy_proxy_scripts(app_handle: &AppHandle) -> Result<std::path::PathBuf, String> {
-    // 目标目录: ~/Library/Application Support/com.codex-ds.proxy/proxy/
-    let data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {}", e))?;
+    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     let proxy_dir = data_dir.join("proxy");
 
-    // 1. 已经部署过，直接返回
+    // 已经部署过，直接返回
     if proxy_dir.join("app.py").exists() {
         return Ok(proxy_dir);
     }
 
-    // 2. 从应用包内 Resources/proxy/ 复制（inject-proxy.sh 注入的）
-    let resource_dir = app_handle.path().resource_dir().map_err(|e| format!("获取资源目录失败: {}", e))?;
-    let bundle_proxy = resource_dir.join("proxy");
-    if bundle_proxy.join("app.py").exists() {
-        copy_dir_recursive(&bundle_proxy, &proxy_dir)?;
-        if proxy_dir.join("app.py").exists() {
-            return Ok(proxy_dir);
-        }
-    }
-
-    // 3. 从多个可能的位置查找源码 proxy/ 目录（开发环境）
-    let candidates = &[
-        // 相对于可执行文件（target/release/ -> ../../proxy/）
-        std::env::current_exe().ok().and_then(|p| {
-            p.parent().map(|p| {
-                // 从 .app/Contents/MacOS/ -> ../../Resources/proxy/
-                let app_resources = p.join("../../Resources/proxy");
-                if app_resources.join("app.py").exists() {
-                    return Some(app_resources);
-                }
-                // 从 target/release/ -> ../../proxy/
-                let dev = p.join("../../proxy");
-                if dev.join("app.py").exists() {
-                    return Some(dev);
-                }
-                None
-            }).flatten()
-        }),
-        // 相对于当前工作目录
-        Some(std::path::PathBuf::from("../proxy")),
-        Some(std::path::PathBuf::from("proxy")),
+    // 编译时嵌入的 Python 脚本（通过 include_str!）
+    // 这些文件在编译时被嵌入到二进制中，运行时写出
+    static EMBEDDED_FILES: &[(&str, &str)] = &[
+        ("app.py", include_str!("../../proxy/app.py")),
+        ("proxy.py", include_str!("../../proxy/proxy.py")),
+        ("config_manager.py", include_str!("../../proxy/config_manager.py")),
+        ("web_ui.py", include_str!("../../proxy/web_ui.py")),
+        ("anthropic_adapter.py", include_str!("../../proxy/anthropic_adapter.py")),
+        ("providers/__init__.py", include_str!("../../proxy/providers/__init__.py")),
+        ("providers/base.py", include_str!("../../proxy/providers/base.py")),
+        ("providers/deepseek.py", include_str!("../../proxy/providers/deepseek.py")),
+        ("templates/index.html", include_str!("../../proxy/templates/index.html")),
+        ("static/css/style.css", include_str!("../../proxy/static/css/style.css")),
+        ("static/js/app.js", include_str!("../../proxy/static/js/app.js")),
     ];
 
-    for c in candidates.iter().flatten() {
-        if c.join("app.py").exists() {
-            copy_dir_recursive(c, &proxy_dir)?;
-            if proxy_dir.join("app.py").exists() {
-                return Ok(proxy_dir);
-            }
+    // 写出所有嵌入的文件
+    for (rel_path, content) in EMBEDDED_FILES {
+        let full_path = proxy_dir.join(rel_path);
+        if let Some(parent) = full_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败 {}: {}", parent.display(), e))?;
         }
+        std::fs::write(&full_path, content).map_err(|e| format!("写入文件失败 {}: {}", full_path.display(), e))?;
     }
 
-    // 4. 全部失败，给出可复制的错误信息
-    let resource_dir_str = resource_dir.to_string_lossy();
-    Err(format!(
-        "启动失败：找不到代理脚本\n\
-         ----------------------------------------\n\
-         应用数据目录: {}\n\
-         应用资源目录: {}\n\
-         \n\
-         解决方法：\n\
-         1. 重新安装本应用\n\
-         2. 如果问题持续，请联系开发者",
-        data_dir.display(),
-        resource_dir_str
-    ))
+    if proxy_dir.join("app.py").exists() {
+        Ok(proxy_dir)
+    } else {
+        Err("部署代理脚本失败，请重新安装本应用".into())
+    }
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
