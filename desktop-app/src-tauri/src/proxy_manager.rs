@@ -151,42 +151,67 @@ fn deploy_proxy_scripts(app_handle: &AppHandle) -> Result<std::path::PathBuf, St
         .map_err(|e| format!("获取数据目录失败: {}", e))?;
     let proxy_dir = data_dir.join("proxy");
 
-    // 检查是否已经部署
-    let app_py = proxy_dir.join("app.py");
-    if app_py.exists() {
+    // 1. 已经部署过，直接返回
+    if proxy_dir.join("app.py").exists() {
         return Ok(proxy_dir);
     }
 
-    // 需要部署——从源码查找文件
-    let src_dir = find_source_proxy_dir()?;
-    copy_dir_recursive(&src_dir, &proxy_dir)?;
-
-    if app_py.exists() {
-        Ok(proxy_dir)
-    } else {
-        Err(format!("部署代理脚本失败\n请尝试重新安装本应用"))
+    // 2. 从应用包内 Resources/proxy/ 复制（inject-proxy.sh 注入的）
+    let resource_dir = app_handle.path().resource_dir().map_err(|e| format!("获取资源目录失败: {}", e))?;
+    let bundle_proxy = resource_dir.join("proxy");
+    if bundle_proxy.join("app.py").exists() {
+        copy_dir_recursive(&bundle_proxy, &proxy_dir)?;
+        if proxy_dir.join("app.py").exists() {
+            return Ok(proxy_dir);
+        }
     }
-}
 
-fn find_source_proxy_dir() -> Result<std::path::PathBuf, String> {
-    // 从多个可能的位置查找 proxy/ 源码目录
+    // 3. 从多个可能的位置查找源码 proxy/ 目录（开发环境）
     let candidates = &[
-        // 相对于可执行文件
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("../../proxy"))),
-        // 相对于工作目录
+        // 相对于可执行文件（target/release/ -> ../../proxy/）
+        std::env::current_exe().ok().and_then(|p| {
+            p.parent().map(|p| {
+                // 从 .app/Contents/MacOS/ -> ../../Resources/proxy/
+                let app_resources = p.join("../../Resources/proxy");
+                if app_resources.join("app.py").exists() {
+                    return Some(app_resources);
+                }
+                // 从 target/release/ -> ../../proxy/
+                let dev = p.join("../../proxy");
+                if dev.join("app.py").exists() {
+                    return Some(dev);
+                }
+                None
+            }).flatten()
+        }),
+        // 相对于当前工作目录
         Some(std::path::PathBuf::from("../proxy")),
         Some(std::path::PathBuf::from("proxy")),
     ];
 
     for c in candidates.iter().flatten() {
         if c.join("app.py").exists() {
-            return Ok(c.canonicalize().unwrap_or(c.to_path_buf()));
+            copy_dir_recursive(c, &proxy_dir)?;
+            if proxy_dir.join("app.py").exists() {
+                return Ok(proxy_dir);
+            }
         }
     }
 
-    Err("找不到代理脚本源码目录".into())
+    // 4. 全部失败，给出可复制的错误信息
+    let resource_dir_str = resource_dir.to_string_lossy();
+    Err(format!(
+        "启动失败：找不到代理脚本\n\
+         ----------------------------------------\n\
+         应用数据目录: {}\n\
+         应用资源目录: {}\n\
+         \n\
+         解决方法：\n\
+         1. 重新安装本应用\n\
+         2. 如果问题持续，请联系开发者",
+        data_dir.display(),
+        resource_dir_str
+    ))
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
