@@ -1,56 +1,98 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { ProxyStatus, LogEntry, ProxyConfig, AppState } from "./types";
+import { ProxyStatus, ProxyConfig, AppState } from "./types";
 import StatusCard from "./components/StatusCard";
-import LogPanel from "./components/LogPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import ProxyToggle from "./components/ProxyToggle";
 import Sidebar from "./components/Sidebar";
 
-type Tab = "status" | "logs" | "settings";
+type Tab = "status" | "settings";
 
 export default function App() {
   const [state, setState] = useState<AppState>({
     proxyStatus: null,
-    logs: [],
     config: null,
     loading: true,
+    starting: false,
     error: null,
     keyValid: null,
     checkingKey: false,
   });
   const [activeTab, setActiveTab] = useState<Tab>("status");
   const [darkMode, setDarkMode] = useState(true);
+  const mountedRef = useRef(true);
+
+  // ── 回调函数定义 ──
+
+  const refreshStatus = useCallback(async () => {
+    if (!mountedRef.current) return;
+    try {
+      const status: ProxyStatus = await invoke("get_proxy_status");
+      if (mountedRef.current) {
+        setState((s) => ({ ...s, proxyStatus: status }));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const loadInitialData = useCallback(async () => {
+    setState((s) => ({ ...s, loading: true }));
+    try {
+      const config: ProxyConfig = await invoke("get_config");
+      if (!mountedRef.current) return;
+      setDarkMode(config.dark_mode);
+      setState((s) => ({ ...s, config, loading: false }));
+      await refreshStatus();
+    } catch (e) {
+      if (mountedRef.current) {
+        setState((s) => ({ ...s, loading: false, error: String(e) }));
+      }
+    }
+  }, [refreshStatus]);
 
   // ── 加载初始数据 ──
   useEffect(() => {
-    loadInitialData();
+    mountedRef.current = true;
+    const loadingTimeout = setTimeout(() => {
+      if (mountedRef.current) {
+        setState((s) => {
+          if (s.loading) {
+            return { ...s, loading: false, error: "加载超时" };
+          }
+          return s;
+        });
+      }
+    }, 5000);
 
-    // 监听代理事件
+    loadInitialData().finally(() => clearTimeout(loadingTimeout));
+
     const unlisten1 = listen("proxy-started", () => {
       refreshStatus();
     });
     const unlisten2 = listen("proxy-stopped", () => {
-      setState((s) => ({
-        ...s,
-        proxyStatus: { running: false, port: 8787, uptime_seconds: 0, total_requests: 0 },
-        logs: [],
-      }));
+      if (mountedRef.current) {
+        setState((s) => ({
+          ...s,
+          proxyStatus: { running: false, port: 8787, uptime_seconds: 0, total_requests: 0 },
+          starting: false,
+        }));
+      }
     });
 
-    // 定时轮询状态（每 2 秒）
-    const interval = setInterval(refreshStatus, 2000);
+    const statusInterval = setInterval(refreshStatus, 2000);
 
     return () => {
+      mountedRef.current = false;
       unlisten1.then((f) => f());
       unlisten2.then((f) => f());
-      clearInterval(interval);
+      clearInterval(statusInterval);
+      clearTimeout(loadingTimeout);
     };
   }, []);
 
-  // eslint-disable-next-line
-  // 暗色模式同步
+  // ── 暗色模式 ──
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
@@ -59,57 +101,32 @@ export default function App() {
     }
   }, [darkMode]);
 
-  const loadInitialData = async () => {
-    setState((s) => ({ ...s, loading: true }));
-    try {
-      const config: ProxyConfig = await invoke("get_config");
-      setDarkMode(config.dark_mode);
-      setState((s) => ({ ...s, config, loading: false }));
-      await refreshStatus();
-    } catch (e) {
-      setState((s) => ({ ...s, loading: false, error: String(e) }));
-    }
-  };
-
-  const refreshStatus = useCallback(async () => {
-    try {
-      const status: ProxyStatus = await invoke("get_proxy_status");
-      setState((s) => ({ ...s, proxyStatus: status }));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const refreshLogs = useCallback(async () => {
-    try {
-      const result = await invoke("get_logs", { limit: 100 });
-      const data = result as { logs: LogEntry[] };
-      setState((s) => ({ ...s, logs: data.logs }));
-    } catch {
-      // ignore
-    }
-  }, []);
+  // ── 启动/停止 ──
 
   const handleStartProxy = useCallback(
     async (apiKey: string, port: number) => {
+      setState((s) => ({ ...s, error: null, starting: true }));
       try {
-        setState((s) => ({ ...s, error: null }));
         await invoke("start_proxy", { apiKey, port: port || null });
         await refreshStatus();
       } catch (e) {
         setState((s) => ({ ...s, error: String(e) }));
+      } finally {
+        setState((s) => ({ ...s, starting: false }));
       }
     },
     [refreshStatus]
   );
 
   const handleStopProxy = useCallback(async () => {
+    setState((s) => ({ ...s, error: null, starting: true }));
     try {
-      setState((s) => ({ ...s, error: null }));
       await invoke("stop_proxy");
       await refreshStatus();
     } catch (e) {
       setState((s) => ({ ...s, error: String(e) }));
+    } finally {
+      setState((s) => ({ ...s, starting: false }));
     }
   }, [refreshStatus]);
 
@@ -140,16 +157,9 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
-      {/* 侧边栏 */}
-      <Sidebar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        isRunning={isRunning}
-      />
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isRunning={isRunning} />
 
-      {/* 主内容区 */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* 顶部渐变栏 */}
         <header className="gradient-bg px-6 py-4 shrink-0">
           <div className="flex items-center justify-between">
             <div>
@@ -162,6 +172,7 @@ export default function App() {
             </div>
             <ProxyToggle
               isRunning={isRunning}
+              isStarting={state.starting}
               onStart={() =>
                 handleStartProxy(
                   state.config?.api_key || "",
@@ -173,7 +184,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* 错误提示 */}
         {state.error && (
           <div className="mx-6 mt-4 px-4 py-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300 flex items-center justify-between animate-fade-in">
             <span>{state.error}</span>
@@ -186,7 +196,6 @@ export default function App() {
           </div>
         )}
 
-        {/* 主面板 */}
         <div className="flex-1 overflow-auto p-6">
           {state.loading ? (
             <LoadingScreen />
@@ -205,9 +214,6 @@ export default function App() {
                   isRunning={isRunning}
                   config={state.config}
                 />
-              )}
-              {activeTab === "logs" && (
-                <LogPanel logs={state.logs} onRefresh={refreshLogs} />
               )}
               {activeTab === "settings" && (
                 <SettingsPanel

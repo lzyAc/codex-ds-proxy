@@ -226,9 +226,10 @@ async function saveMappings() {
 
 // ===== 请求日志 =====
 async function refreshLogs() {
-    const logs = await apiGet('/logs?limit=50');
+    const resp = await apiGet('/logs?limit=50');
     const list = document.getElementById('logList');
-    if (!logs || logs.length === 0) {
+    const logs = resp && resp.logs ? resp.logs : [];
+    if (logs.length === 0) {
         list.innerHTML = '<div class="log-empty">暂无请求记录 — 启动代理后，通过 Codex CLI 发出的请求会显示在这里</div>';
         return;
     }

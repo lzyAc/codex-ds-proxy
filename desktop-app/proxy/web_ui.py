@@ -100,7 +100,8 @@ class LogsHandler(tornado.web.RequestHandler):
         limit = int(self.get_argument("limit", 100))
         logs = get_logs(limit)
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps(logs, ensure_ascii=False))
+        # 包装为对象格式以便 Rust 端解析：{"logs": [...]}
+        self.finish(json.dumps({"logs": logs}, ensure_ascii=False))
 
 
 class EnvHandler(tornado.web.RequestHandler):

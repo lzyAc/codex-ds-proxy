@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "description": "允许 main 窗口进行所有操作",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:app:default",
+    "core:tray:default",
+    "shell:default",
+    "dialog:default"
+  ]
+}

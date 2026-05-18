@@ -21,7 +21,8 @@
         "fullscreen": false,
         "center": true,
         "decorations": true,
-        "transparent": false
+        "transparent": false,
+        "devtools": true
       }
     ],
     "trayIcon": {

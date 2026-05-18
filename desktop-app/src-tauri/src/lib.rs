@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
 use tokio::sync::broadcast;
 
 mod proxy_manager;
@@ -13,7 +13,7 @@ pub struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
@@ -28,18 +28,30 @@ pub fn run() {
             config::save_config,
         ])
         .setup(|app| {
+            // 监听窗口关闭事件 → 清理 Python 进程
+            let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    let _ = std::process::Command::new("sh")
+                        .args(["-c", "pkill -f 'python3.*app.py' 2>/dev/null; pkill -f 'python.*app.py' 2>/dev/null"])
+                        .output();
+                }
+            });
+
             // 系统托盘：点击图标显示窗口
             #[cfg(all(desktop, not(target_os = "windows")))]
             {
-                app.on_tray_icon_event(|_tray_icon, _event| {
-                    if let Some(window) = _tray_icon.app_handle().get_webview_window("main") {
+                app.on_tray_icon_event(|tray_icon, event| {
+                    if let Some(window) = tray_icon.app_handle().get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
                 });
             }
             Ok(())
-        })
-        .run(tauri::generate_context!())
+        });
+
+    builder.run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

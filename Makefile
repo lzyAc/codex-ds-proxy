@@ -89,7 +89,7 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@echo "✅ 清理完成"
 
-# ===== 桌面版 Tauri 应用 =====
+# ===== 桌面版 Tauri 应用（macOS .app / .dmg）=====
 
 DESKTOP = desktop-app
 
@@ -97,16 +97,45 @@ desktop-setup:
 	@echo "📦 安装桌面版依赖..."
 	cd $(DESKTOP) && npm install
 	@echo "✅ 前端依赖安装完成"
-	@echo "下一步: make desktop-dev"
+	@echo ""
+	@echo "下一步: make desktop-dev  （开发模式，热重载）"
+	@echo "   或: make desktop-build  （生产构建，生成 .app）"
 
 desktop-dev:
 	@echo "🚀 启动桌面版开发模式..."
+	@echo "   窗口打开后按 Cmd+Option+I 打开 DevTools"
 	cd $(DESKTOP) && npm run tauri dev
 
 desktop-build:
-	@echo "🔨 构建桌面版..."
+	@echo "🔨 构建桌面版（需要 macOS + Xcode + Rust）..."
+	@echo "   产物路径: $(DESKTOP)/src-tauri/target/release/bundle/"
+	@echo "   - macOS: .app（直接拖到 Applications 使用）"
+	@echo "   - macOS: .dmg（可分发的安装包）"
+	@echo ""
+	@echo "   注意: 如果弹出 bundle_dmg.sh 错误，用下面的 desktop-build-app 命令"
 	cd $(DESKTOP) && npm run tauri build
+
+desktop-build-app:
+	@echo "🔨 构建桌面版（仅 .app，跳过 dmg）..."
+	cd $(DESKTOP) && npm run tauri build -- --bundles app
+	@echo ""
+	@echo "✅ 构建完成！.app 文件:"
+	@echo "   $(DESKTOP)/src-tauri/target/release/bundle/macos/Codex-DS 代理.app"
+	@echo "   直接拖入 Applications 文件夹使用"
+
+desktop-build-dmg:
+	@echo "🔨 构建 macOS .dmg 安装包..."
+	cd $(DESKTOP) && npm run tauri build -- --bundles dmg
+
+desktop-clean:
+	@echo "🧹 清理桌面版构建缓存..."
+	cd $(DESKTOP) && rm -rf src-tauri/target node_modules dist
+	@echo "✅ 清理完成"
 
 desktop-icons:
 	@echo "🖼️  生成应用图标..."
 	cd $(DESKTOP)/scripts && bash generate-icons.sh
+
+# ===== 快捷命令 =====
+clean-all: clean desktop-clean
+	@echo "🧹 已清理所有构建产物"

@@ -29,6 +29,7 @@ export interface AppState {
   logs: LogEntry[];
   config: ProxyConfig | null;
   loading: boolean;
+  starting: boolean;
   error: string | null;
   keyValid: boolean | null;
   checkingKey: boolean;
