@@ -1,6 +1,7 @@
 #!/bin/bash
 # 构建后将 Python 代理脚本复制到 .app 包内
-# 这样应用打开后就能直接从包内找到 app.py
+# 用法: bash scripts/copy-proxy-to-app.sh
+# 需要在 npm run tauri build 之后执行
 
 set -e
 
@@ -12,20 +13,26 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
-RESOURCES_DIR="$APP_PATH/Contents/Resources/proxy"
+RESOURCES_DIR="$APP_PATH/Contents/Resources"
 
 echo "📦 复制 Python 代理到应用包..."
-mkdir -p "$RESOURCES_DIR/providers"
-mkdir -p "$RESOURCES_DIR/templates"
-mkdir -p "$RESOURCES_DIR/static/css"
-mkdir -p "$RESOURCES_DIR/static/js"
 
-cp proxy/*.py "$RESOURCES_DIR/"
-cp proxy/providers/*.py "$RESOURCES_DIR/providers/"
-cp proxy/templates/* "$RESOURCES_DIR/templates/"
-cp proxy/static/css/* "$RESOURCES_DIR/static/css/"
-cp proxy/static/js/* "$RESOURCES_DIR/static/js/"
-cp proxy/__init__.py "$RESOURCES_DIR/"
+# 清空旧的 proxy 目录
+rm -rf "$RESOURCES_DIR/proxy"
 
-echo "✅ Python 代理已复制到应用包: $RESOURCES_DIR"
-ls -la "$RESOURCES_DIR/"
+# 创建目录
+mkdir -p "$RESOURCES_DIR/proxy/providers"
+mkdir -p "$RESOURCES_DIR/proxy/templates"
+mkdir -p "$RESOURCES_DIR/proxy/static/css"
+mkdir -p "$RESOURCES_DIR/proxy/static/js"
+
+# 复制所有 Python 脚本
+cp proxy/*.py "$RESOURCES_DIR/proxy/"
+cp proxy/providers/*.py "$RESOURCES_DIR/proxy/providers/"
+cp proxy/templates/* "$RESOURCES_DIR/proxy/templates/"
+cp proxy/static/css/* "$RESOURCES_DIR/proxy/static/css/"
+cp proxy/static/js/* "$RESOURCES_DIR/proxy/static/js/"
+cp proxy/__init__.py "$RESOURCES_DIR/proxy/"
+
+echo "✅ Python 代理已复制到: $RESOURCES_DIR/proxy/"
+ls -la "$RESOURCES_DIR/proxy/"

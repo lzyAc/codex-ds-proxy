@@ -75,13 +75,22 @@ def load_config() -> dict:
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
-            merged = {**DEFAULT_CONFIG, **config}
-            for key in DEFAULT_CONFIG:
-                if isinstance(DEFAULT_CONFIG[key], dict) and key in config:
-                    merged[key] = {**DEFAULT_CONFIG[key], **config[key]}
-            return merged
         except (json.JSONDecodeError, IOError):
             return DEFAULT_CONFIG.copy()
+
+        # 深度合并：递归合并嵌套字典
+        merged = dict(DEFAULT_CONFIG)
+        for key in config:
+            if key in merged and isinstance(merged[key], dict) and isinstance(config[key], dict):
+                merged[key] = {**merged[key], **config[key]}
+            else:
+                merged[key] = config[key]
+
+        # 确保 providers.deepseek.api_key 存在
+        if "providers" in merged and "deepseek" in merged["providers"]:
+            if "api_key" not in merged["providers"]["deepseek"]:
+                merged["providers"]["deepseek"]["api_key"] = merged.get("deepseek_api_key", "")
+        return merged
     return DEFAULT_CONFIG.copy()
 
 

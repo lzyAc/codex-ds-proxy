@@ -311,83 +311,50 @@ fn find_python() -> String {
 }
 
 fn find_proxy_script(app_handle: &AppHandle) -> Result<String, String> {
-    // 1. Tauri resource 目录（bundle 后文件直接展平在资源根目录）
+    // 从 .app 包内 Resources/proxy/ 查找（copy-proxy-to-app.sh 复制进去的）
+    // macOS .app 结构: xxx.app/Contents/Resources/proxy/app.py
     let resource_dir = app_handle
         .path()
         .resource_dir()
         .map_err(|e| e.to_string())?;
 
-    // 尝试多种路径：直接 app.py / proxy/app.py / resources/app.py
-    let candidates = &[
-        resource_dir.join("app.py"),              // 展平在资源根目录
-        resource_dir.join("proxy").join("app.py"), // proxy 子目录
-        resource_dir.join("resources").join("app.py"), // resources 子目录
-    ];
-    for c in candidates {
-        if c.exists() {
-            return Ok(c.to_string_lossy().to_string());
-        }
+    // Resources 目录: app_handle.resource_dir() 返回 xxx.app/Contents/Resources/
+    let bundle_proxy = resource_dir.join("proxy").join("app.py");
+    if bundle_proxy.exists() {
+        return Ok(bundle_proxy.to_string_lossy().to_string());
     }
 
-    // 2. 可执行文件同级目录（开发环境，target/release/ 下）
+    // 开发模式（desktop-app/proxy/app.py）
+    let dev_path = std::path::Path::new("../proxy/app.py");
+    if dev_path.exists() {
+        return Ok(dev_path.canonicalize().unwrap_or(dev_path.to_path_buf()).to_string_lossy().to_string());
+    }
+    let dev_path2 = std::path::Path::new("../../proxy/app.py");
+    if dev_path2.exists() {
+        return Ok(dev_path2.canonicalize().unwrap_or(dev_path2.to_path_buf()).to_string_lossy().to_string());
+    }
+
+    // 可执行文件同级目录
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            let manual = [
-                parent.join("proxy").join("app.py"),
-                parent.join("../../../proxy/app.py"),
-            ];
-            for c in &manual {
-                if c.exists() {
-                    return Ok(c.to_string_lossy().to_string());
-                }
+            let exe_proxy = parent.join("proxy").join("app.py");
+            if exe_proxy.exists() {
+                return Ok(exe_proxy.to_string_lossy().to_string());
             }
-        }
-    }
-
-    // 3. 从源码根目录查找（开发模式：desktop-app/ 下）
-    let dev_paths = [
-        "../app.py",                      // 从 src-tauri/ 到 desktop-app/
-        "../../app.py",                   // 到 codex-ds 根目录
-    ];
-    for p in &dev_paths {
-        let pp = std::path::Path::new(p);
-        if pp.exists() {
-            return Ok(pp.canonicalize().unwrap_or(pp.to_path_buf()).to_string_lossy().to_string());
-        }
-    }
-
-    // 4. 从 .app 包内 Resources/proxy/ 目录查找（构建后脚本复制进去的）
-    let bundle_path = resource_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.join("Resources").join("proxy").join("app.py"));
-    if let Some(ref bp) = bundle_path {
-        if bp.exists() {
-            return Ok(bp.to_string_lossy().to_string());
-        }
-    }
-    // 同样检查 Resources 下的扁平路径
-    let bundle_flat = resource_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.join("Resources").join("app.py"));
-    if let Some(ref bf) = bundle_flat {
-        if bf.exists() {
-            return Ok(bf.to_string_lossy().to_string());
         }
     }
 
     Err(format!(
         "启动失败：找不到代理脚本 app.py\n\
          ----------------------------------------\n\
-         (此信息已复制到剪贴板)\n\
-         请尝试：\n\
+         解决方法：\n\
          1. 确保已安装 Python：python3 --version\n\
-         2. 重新安装本应用\n\
-         3. 或终端手动运行：\n\
+         2. 运行复制脚本：bash scripts/copy-proxy-to-app.sh\n\
+         3. 或终端手动启动 Python 代理：\n\
             cd codex-ds && python3 app.py\n\
+         4. 然后重新打开本应用\n\
          ----------------------------------------\n\
-         查找路径:\n  {:?}",
+         查找路径: {:?}",
         resource_dir
     ))
 }
