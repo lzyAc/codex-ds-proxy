@@ -340,6 +340,28 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
     Ok(resp.status().is_success())
 }
 
+// ── 系统托盘事件 ──
+
+pub fn handle_tray_event(
+    _tray: &tauri::tray::TrayIcon,
+    event: tauri::tray::TrayIconEvent,
+) {
+    use tauri::tray::MouseButton;
+    use tauri::tray::MouseButtonState;
+
+    if let tauri::tray::TrayIconEvent::Click {
+        button: MouseButton::Left,
+        button_state: MouseButtonState::Up,
+        ..
+    } = event
+    {
+        if let Some(window) = _tray.app_handle().get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
+}
+
 // ── 辅助函数 ──
 
 fn find_python() -> String {

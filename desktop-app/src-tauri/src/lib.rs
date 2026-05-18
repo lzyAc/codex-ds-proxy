@@ -1,5 +1,4 @@
 use std::sync::Mutex;
-use tauri::Manager;
 use tokio::sync::broadcast;
 
 mod proxy_manager;
