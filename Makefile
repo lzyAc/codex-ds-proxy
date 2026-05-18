@@ -88,3 +88,25 @@ clean:
 	rm -rf $(VENV) __pycache__ .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@echo "✅ 清理完成"
+
+# ===== 桌面版 Tauri 应用 =====
+
+DESKTOP = desktop-app
+
+desktop-setup:
+	@echo "📦 安装桌面版依赖..."
+	cd $(DESKTOP) && npm install
+	@echo "✅ 前端依赖安装完成"
+	@echo "下一步: make desktop-dev"
+
+desktop-dev:
+	@echo "🚀 启动桌面版开发模式..."
+	cd $(DESKTOP) && npm run tauri dev
+
+desktop-build:
+	@echo "🔨 构建桌面版..."
+	cd $(DESKTOP) && npm run tauri build
+
+desktop-icons:
+	@echo "🖼️  生成应用图标..."
+	cd $(DESKTOP)/scripts && bash generate-icons.sh
