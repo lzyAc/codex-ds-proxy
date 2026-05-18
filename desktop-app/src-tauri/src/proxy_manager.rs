@@ -173,13 +173,14 @@ pub async fn start_proxy(
         }
 
         let status = child.wait().await;
+        let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
         PROXY_RUNNING.store(false, Ordering::SeqCst);
         let _ = tx.send(());
         if let Ok(mut lf) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
-            let _ = writeln!(lf, "代理进程退出: {:?}", status.map(|s| s.code()));
+            let _ = writeln!(lf, "代理进程退出, 代码: {}", exit_code);
         }
         let _ = app_clone.emit("proxy-stopped", serde_json::json!({
-            "code": status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1)
+            "code": exit_code
         }));
     });
 
