@@ -1,6 +1,8 @@
 """
 Anthropic Messages API ↔ OpenAI Chat Completions 格式转换
 
+修复：超长对话中 tool_call_id 校验失败问题（"insufficient tool messages following tool_calls"）
+
 支持 Claude Desktop / Claude CLI / 任意 Anthropic SDK 客户端
 通过代理将请求转发至 DeepSeek。
 """
@@ -8,6 +10,7 @@ Anthropic Messages API ↔ OpenAI Chat Completions 格式转换
 import json
 import time
 import uuid
+from collections import Counter
 
 
 # ─── 模型名映射 ────────────────────────────────────────────
@@ -24,6 +27,11 @@ CLAUDE_MODEL_MAP = {
     "claude-3-opus": "deepseek-v4-pro",
     "claude-3-sonnet": "deepseek-v4-pro",
     "claude-3-haiku": "deepseek-v4-flash",
+    "claude-opus-4.6": "deepseek-v4-pro",
+    "claude-sonnet-4.6": "deepseek-v4-pro",
+    "claude-haiku-4.6": "deepseek-v4-flash",
+    "claude-opus-4.7": "deepseek-v4-pro",
+    "claude-sonnet-4.7": "deepseek-v4-pro",
 }
 
 def map_claude_model(model: str) -> str:
@@ -34,6 +42,103 @@ def map_claude_model(model: str) -> str:
         if model.startswith(prefix):
             return target
     return "deepseek-v4-pro"
+
+
+# ─── Tool 消息配对校验 ─────────────────────────────────────
+
+def _validate_tool_call_pairs(messages: list) -> list:
+    """
+    验证并修复 tool_call → tool 消息的配对关系。
+    DeepSeek API 严格要求每个 assistant.tool_calls 后面跟着对应的 tool 消息。
+
+    常见问题场景：
+    - tool_use_id 为空 → 跳过无效 tool 消息
+    - tool 消息中 tool_call_id 不存在于 pending 中 → 跳过
+    - user 消息出现但还有未响应的 tool_calls → 插入空 tool 响应
+    - 连续多个 assistant 消息中间没有 tool → 合并不带 tool_calls 的 assistant
+    """
+    fixed = []
+    pending_ids = {}  # tool_call_id -> count of occurrences needed
+
+    for msg in messages:
+        role = msg.get("role", "")
+
+        if role == "assistant" and msg.get("tool_calls"):
+            # 过滤掉没有 id 的 tool_calls
+            valid_calls = []
+            for tc in msg.get("tool_calls", []):
+                tc_id = tc.get("id", "")
+                if tc_id:
+                    valid_calls.append(tc)
+            if valid_calls:
+                msg["tool_calls"] = valid_calls
+                for tc in valid_calls:
+                    tc_id = tc["id"]
+                    pending_ids[tc_id] = pending_ids.get(tc_id, 0) + 1
+                fixed.append(msg)
+            else:
+                # 所有 tool_calls 都没有 id → 降级为纯文本
+                new_msg = dict(msg)
+                new_msg.pop("tool_calls", None)
+                if new_msg.get("content") is None:
+                    new_msg["content"] = ""
+                fixed.append(new_msg)
+
+        elif role == "tool":
+            tc_id = msg.get("tool_call_id", "")
+            if not tc_id or tc_id not in pending_ids:
+                # 无效 tool_call_id → 跳过
+                continue
+            # 消耗一个 pending
+            pending_ids[tc_id] -= 1
+            if pending_ids[tc_id] <= 0:
+                del pending_ids[tc_id]
+            fixed.append(msg)
+
+        elif role == "user" and pending_ids:
+            # user 消息出现但还有未响应的 tool_calls
+            # 插入空 tool 响应来满足 DeepSeek 校验
+            for tc_id in list(pending_ids.keys()):
+                fixed.append({"role": "tool", "tool_call_id": tc_id, "content": ""})
+            pending_ids.clear()
+            fixed.append(msg)
+
+        else:
+            fixed.append(msg)
+
+    # 最后还有未消耗的 pending → 追加空 tool 消息
+    for tc_id in list(pending_ids.keys()):
+        fixed.append({"role": "tool", "tool_call_id": tc_id, "content": ""})
+    pending_ids.clear()
+
+    return fixed
+
+
+def _merge_adjacent_assistant(messages: list) -> list:
+    """
+    合并相邻的 assistant 消息（DeepSeek 不接受连续 assistant 消息）。
+    """
+    if not messages:
+        return messages
+    merged = [messages[0]]
+    for msg in messages[1:]:
+        last = merged[-1]
+        if last.get("role") == "assistant" and msg.get("role") == "assistant":
+            # 合并 tool_calls
+            last_tc = last.get("tool_calls", [])
+            msg_tc = msg.get("tool_calls", [])
+            if last_tc or msg_tc:
+                last["tool_calls"] = last_tc + msg_tc
+            # 合并文本内容（保留非空的）
+            last_content = last.get("content") or ""
+            msg_content = msg.get("content") or ""
+            if last_content or msg_content:
+                last["content"] = (last_content + "\n" + msg_content).strip()
+            else:
+                last["content"] = None
+        else:
+            merged.append(msg)
+    return merged
 
 
 # ─── Request: Anthropic → OpenAI ───────────────────────────
@@ -70,8 +175,11 @@ def anthropic_to_openai(body: dict) -> dict:
                     text_parts.append(block.get("text", ""))
                 elif btype == "tool_use":
                     input_data = block.get("input", {})
+                    tc_id = block.get("id", "").strip()
+                    if not tc_id:
+                        tc_id = f"tu_{uuid.uuid4().hex[:12]}"
                     tool_calls.append({
-                        "id": block.get("id", ""),
+                        "id": tc_id,
                         "type": "function",
                         "function": {
                             "name": block.get("name", ""),
@@ -79,30 +187,62 @@ def anthropic_to_openai(body: dict) -> dict:
                         }
                     })
                 elif btype == "tool_result":
+                    content_raw = block.get("content", "")
+                    if isinstance(content_raw, list):
+                        content_strs = []
+                        for p in content_raw:
+                            if isinstance(p, dict):
+                                content_strs.append(p.get("text", json.dumps(p, ensure_ascii=False)))
+                            else:
+                                content_strs.append(str(p))
+                        content_str = " ".join(content_strs)
+                    else:
+                        content_str = str(content_raw) if content_raw is not None else ""
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": block.get("tool_use_id", ""),
-                        "content": block.get("content", "") if isinstance(block.get("content"), str)
-                                   else json.dumps(block.get("content", ""))
+                        "content": content_str,
                     })
                 elif btype == "image":
-                    text_parts.append("[image]")
+                    text_parts.append("[图片]")
                 elif btype == "thinking":
                     text_parts.append(block.get("thinking", ""))
+                elif btype == "tool_call" or btype == "function_call":
+                    fc_input = block.get("input", block.get("arguments", {}))
+                    if isinstance(fc_input, str):
+                        try:
+                            fc_input = json.loads(fc_input)
+                        except json.JSONDecodeError:
+                            fc_input = {"raw": fc_input}
+                    fc_id = block.get("id", "").strip()
+                    if not fc_id:
+                        fc_id = f"fc_{uuid.uuid4().hex[:12]}"
+                    tool_calls.append({
+                        "id": fc_id,
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(fc_input, ensure_ascii=False)
+                        }
+                    })
+
             # 合并：同一原始消息的 text + tool_calls → 一条 assistant 消息
             if tool_calls:
                 assistant_msg = {"role": "assistant", "tool_calls": tool_calls}
-                if text_parts:
-                    assistant_msg["content"] = " ".join(text_parts)
-                else:
-                    assistant_msg["content"] = None
+                text_content = " ".join(filter(None, text_parts))
+                assistant_msg["content"] = text_content if text_content else None
                 messages.append(assistant_msg)
             elif text_parts:
-                messages.append({"role": role, "content": " ".join(text_parts)})
-            # tool_results 放在最后
+                messages.append({"role": role, "content": " ".join(filter(None, text_parts))})
+
+            # tool_results 以原始顺序追加
             messages.extend(tool_results)
         else:
             messages.append({"role": role, "content": str(content)})
+
+    # tool_call 配对校验 + 相邻 assistant 合并
+    messages = _validate_tool_call_pairs(messages)
+    messages = _merge_adjacent_assistant(messages)
 
     chat = {
         "model": map_claude_model(body.get("model", "")),
@@ -137,7 +277,7 @@ def anthropic_to_openai(body: dict) -> dict:
     if "stop_sequences" in body and body["stop_sequences"]:
         chat["stop"] = body["stop_sequences"]
 
-    # 禁用 thinking（DeepSeek 需要多轮推理上下文）
+    # 多轮关闭 thinking（DeepSeek 需要多轮推理上下文不带 thinking）
     if len(messages) > 1:
         chat["thinking"] = {"type": "disabled"}
 
@@ -243,10 +383,12 @@ async def stream_anthropic(provider, openai_body: dict, model: str, response_han
     text_block_opened = False
     tool_block_opened = set()
 
+    received_any = False
     async for event in provider.stream_chat_completion(openai_body):
         _ensure_message_start()
         if event.get("_done"):
             break
+        received_any = True
 
         if "usage" in event:
             input_tokens = event["usage"].get("prompt_tokens", 0)
@@ -293,10 +435,11 @@ async def stream_anthropic(provider, openai_body: dict, model: str, response_han
                         input_data = json.loads(tc_info["input_str"])
                     except json.JSONDecodeError:
                         input_data = {}
+                    # 先发送完整参数的 delta（覆盖 content_block_start 的空 input）
                     _sse("content_block_delta", {
                         "type": "content_block_delta",
                         "index": idx + (1 if text_block_opened else 0),
-                        "delta": {"type": "input_json_delta", "partial_json": ""}
+                        "delta": {"type": "input_json_delta", "partial_json": json.dumps(input_data, ensure_ascii=False)}
                     })
                     _sse("content_block_stop", {
                         "type": "content_block_stop",
@@ -319,5 +462,7 @@ async def stream_anthropic(provider, openai_body: dict, model: str, response_han
         "usage": {"output_tokens": max(output_tokens, len(full_text) // 3)},
     })
 
-    # message_stop
-    _sse("message_stop", {"type": "message_stop"})
+    # message_stop - 仅在收到了有效事件时才发
+    if received_any:
+        _sse("message_stop", {"type": "message_stop"})
+    return input_tokens, output_tokens

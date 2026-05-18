@@ -26,6 +26,8 @@ from config_manager import load_config
 from providers import get_provider
 
 logger = logging.getLogger("codex-ds-proxy")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S")
+logger.setLevel(logging.INFO)
 
 CST = timezone(timedelta(hours=8))
 
@@ -78,6 +80,11 @@ class ModelsHandler(tornado.web.RequestHandler):
             {"id": "claude-opus-4-20250514", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
             {"id": "claude-3.5-sonnet", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
             {"id": "claude-3.5-haiku", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-opus-4.6", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-sonnet-4.6", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-haiku-4.6", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-opus-4.7", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
+            {"id": "claude-sonnet-4.7", "object": "model", "created": 1710000000, "owned_by": "anthropic"},
         ]
         self.finish({
             "object": "list",
@@ -108,6 +115,8 @@ class ChatCompletionsHandler(tornado.web.RequestHandler):
         body["model"] = provider.map_model(original_model)
         is_stream = body.get("stream", False) is True
 
+        logger.info(f"[Proxy] ChatCompletions model={original_model}→{body['model']}, stream={is_stream}")
+
         t0 = time.time()
         try:
             if is_stream:
@@ -115,6 +124,8 @@ class ChatCompletionsHandler(tornado.web.RequestHandler):
             else:
                 await self._proxy_non_stream(provider, body, original_model, body["model"], t0)
         except tornado.httpclient.HTTPClientError as e:
+            err_detail = str(e.response.body)[:500] if hasattr(e, 'response') and e.response else str(e)
+            logger.error(f"Upstream error: HTTP {e.code} - {err_detail}")
             _add_log({
                 "time": datetime.now(CST).isoformat(),
                 "model_original": original_model, "model_mapped": body["model"],
@@ -151,6 +162,7 @@ class ChatCompletionsHandler(tornado.web.RequestHandler):
         self.set_header("X-Accel-Buffering", "no")
 
         chunk_count = 0
+        full_text = ""
         async for event in provider.stream_chat_completion(body):
             if event.get("_done"):
                 break
@@ -159,12 +171,16 @@ class ChatCompletionsHandler(tornado.web.RequestHandler):
             chunk_count += 1
             if chunk_count % 10 == 0:
                 self.flush()
+            # 统计文本 token
+            for choice in event.get("choices", []):
+                d = choice.get("delta", {})
+                full_text += (d.get("content") or "")
 
         self.flush()
         _add_log({
             "time": datetime.now(CST).isoformat(), "model_original": orig,
             "model_mapped": mapped, "stream": True, "status": "success",
-            "duration_ms": int((time.time() - t0) * 1000), "tokens": chunk_count,
+            "duration_ms": int((time.time() - t0) * 1000), "tokens": len(full_text) // 3,
         })
 
 
@@ -207,31 +223,46 @@ class AnthropicMessagesHandler(tornado.web.RequestHandler):
 
         t0 = time.time()
         try:
-            # SSE 响应头延迟到 stream_anthropic 成功获取首个事件后再设置
-            logger.info(f"Anthropic→OpenAI body: model={chat_body.get('model')}, msgs={len(chat_body.get('messages',[]))}, tools={len(chat_body.get('tools',[]))}, has_thinking={'thinking' in chat_body}")
-            await stream_anthropic(provider, chat_body, orig_model, self)
+            msg_count = len(chat_body.get("messages", []))
+            msg_roles = [m.get('role','?') for m in chat_body.get('messages', [])]
+            has_tool_calls = any('tool_calls' in m for m in chat_body.get('messages', []))
+            has_tool_msgs = any(m.get('role') == 'tool' for m in chat_body.get('messages', []))
+            logger.info(f"[Proxy] Anthropic→OpenAI body: model={chat_body.get('model')}, msgs={msg_count}, tools={len(chat_body.get('tools',[]))}, tool_calls_in_msgs={has_tool_calls}, tool_msgs={has_tool_msgs}, roles={msg_roles[:20]}{'...' if len(msg_roles)>20 else ''}")
+            in_tokens, out_tokens = await stream_anthropic(provider, chat_body, orig_model, self)
 
             _add_log({
                 "time": datetime.now(CST).isoformat(),
                 "model_original": orig_model,
                 "model_mapped": chat_body["model"],
                 "stream": True, "status": "success",
-                "duration_ms": int((time.time() - t0) * 1000), "tokens": 0,
+                "duration_ms": int((time.time() - t0) * 1000), "tokens": out_tokens,
             })
         except tornado.httpclient.HTTPClientError as e:
-            err_detail = str(e.response.body)[:500] if e.response else str(e)
-            print(f"[Anthropic Error] HTTP {e.code}: {err_detail}", flush=True)
+            err_detail = str(e.response.body)[:500] if hasattr(e, 'response') and e.response else str(e)
+            logger.error(f"[Anthropic Error] HTTP {e.code}: {err_detail}")
             msg_roles = [m.get('role','?') for m in chat_body.get('messages',[])]
-            print(f"[Anthropic Error] model={chat_body.get('model')}, msgs={len(chat_body.get('messages',[]))}, roles={msg_roles}", flush=True)
+            msg_count = len(chat_body.get('messages',[]))
+            logger.error(f"[Anthropic Error] model={chat_body.get('model')}, msgs={msg_count}, roles={msg_roles[:50]}...")
             _add_log({
                 "time": datetime.now(CST).isoformat(),
                 "model_original": orig_model, "model_mapped": chat_body["model"],
                 "stream": True, "status": "error", "error": str(e)[:100],
                 "duration_ms": int((time.time() - t0) * 1000), "tokens": 0,
             })
+            # 检测工具调用校验错误，给出更友好的提示
+            if "tool_calls" in err_detail.lower() or "insufficient tool" in err_detail.lower():
+                logger.warning("Tool call pairing error detected. The adapter will attempt to fix this automatically.")
             self.set_status(502)
-            self.finish({"type": "error", "error": {"type": "api_error",
-                         "message": str(e)[:200]}})
+            self.set_header("Content-Type", "text/event-stream")
+            self.set_header("Cache-Control", "no-cache")
+            self.set_header("Connection", "keep-alive")
+            self.set_header("X-Accel-Buffering", "no")
+            # 以 SSE 格式返回错误，让 Claude Desktop 能解析
+            self.write("event: error\ndata: " + json.dumps({
+                "type": "error",
+                "error": {"type": "api_error", "message": f"DeepSeek API 错误 (HTTP {e.code})，请尝试刷新对话"}
+            }, ensure_ascii=False) + "\n\n")
+            self.flush()
         except Exception as e:
             logger.error(f"Anthropic unexpected error: {e}", exc_info=True)
             _add_log({
@@ -241,8 +272,15 @@ class AnthropicMessagesHandler(tornado.web.RequestHandler):
                 "duration_ms": int((time.time() - t0) * 1000), "tokens": 0,
             })
             self.set_status(502)
-            self.finish({"type": "error", "error": {"type": "api_error",
-                         "message": str(e)[:200]}})
+            self.set_header("Content-Type", "text/event-stream")
+            self.set_header("Cache-Control", "no-cache")
+            self.set_header("Connection", "keep-alive")
+            self.set_header("X-Accel-Buffering", "no")
+            self.write("event: error\ndata: " + json.dumps({
+                "type": "error",
+                "error": {"type": "api_error", "message": f"代理内部错误: {str(e)[:200]}"}
+            }, ensure_ascii=False) + "\n\n")
+            self.flush()
 
 
 # ─── WebSocket Responses API → Chat Completions ────────────────
@@ -254,7 +292,7 @@ class ResponsesWsHandler(tornado.websocket.WebSocketHandler):
         return True
 
     def open(self):
-        print("[Proxy] WebSocket /v1/responses 已连接", flush=True)
+        logger.info("[Proxy] WebSocket /v1/responses 已连接")
         self._history = []  # 对话历史
         self._turn = 0
 
@@ -289,8 +327,8 @@ class ResponsesWsHandler(tornado.websocket.WebSocketHandler):
         chat_body = _responses_to_chat(body, mapped_model, provider, self._history)
         chat_body["stream"] = True
 
-        print(f"[Proxy] turn={self._turn}, model={original_model}→{mapped_model}, "
-              f"msgs={len(chat_body.get('messages',[]))}, tools={len(chat_body.get('tools',[]))}", flush=True)
+        logger.info(f"[Proxy] turn={self._turn}, model={original_model}→{mapped_model}, "
+              f"msgs={len(chat_body.get('messages',[]))}, tools={len(chat_body.get('tools',[]))}")
 
         try:
             await self._do_stream(provider, chat_body, body, mapped_model,
@@ -548,6 +586,11 @@ def _responses_to_chat(body: dict, mapped_model: str, provider, history: list) -
     if "tool_choice" in body:
         chat["tool_choice"] = provider.convert_tool_choice(body["tool_choice"])
 
+    # 验证并修复 tool_call 配对关系
+    from anthropic_adapter import _validate_tool_call_pairs, _merge_adjacent_assistant
+    chat["messages"] = _validate_tool_call_pairs(chat["messages"])
+    chat["messages"] = _merge_adjacent_assistant(chat["messages"])
+
     return chat
 
 
@@ -568,14 +611,46 @@ class CompactHandler(tornado.web.RequestHandler):
         })
 
 
-# ─── 兜底转发 / 健康检查 ──────────────────────────────────────
+# ─── 杂项端点 ───────────────────────────────────────────────
+
+class FaviconHandler(tornado.web.RequestHandler):
+    """GET /favicon.ico — 返回空 204，避免 Claude Desktop 疯狂 404 日志"""
+    def get(self):
+        self.set_status(204)
+        self.finish()
+
+    head = get
+
+
+class RootHandler(tornado.web.RequestHandler):
+    """GET / 或 HEAD / — Claude Desktop 会发 HEAD 检查，返回 200"""
+    async def get(self):
+        self.set_status(200)
+        self.set_header("Content-Type", "application/json")
+        self.finish({"status": "ok", "service": "codex-ds-proxy"})
+
+    async def head(self):
+        self.set_status(200)
+        self.set_header("Content-Type", "application/json")
+        self.finish()
+
 
 class CatchAllHandler(tornado.web.RequestHandler):
     async def get(self, subpath: str):
+        if subpath.startswith("api/"):
+            # 不转发 /api/ 开头的路径
+            self.set_status(404)
+            self.finish({"error": "Not found"})
+            return
         await self._fwd("GET", subpath)
 
     async def post(self, subpath: str):
         await self._fwd("POST", subpath)
+
+    async def head(self, subpath: str):
+        # HEAD 请求直接返回 200 空响应
+        self.set_status(200)
+        self.finish()
 
     async def _fwd(self, method: str, subpath: str):
         config = load_config()
@@ -645,6 +720,8 @@ class HealthHandler(tornado.web.RequestHandler):
 
 def make_proxy_app() -> tornado.web.Application:
     return tornado.web.Application([
+        (r"/favicon.ico", FaviconHandler),
+        (r"/", RootHandler),
         (r"/v1/models(?:/(.*))?", ModelsHandler),
         (r"/v1/messages/count_tokens", CountTokensHandler),
         (r"/v1/messages", AnthropicMessagesHandler),
