@@ -43,7 +43,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["../*.py", "../providers/**", "../config_manager.py", "../web_ui.py", "../templates/**", "../static/**"],
+    "resources": [],
     "macOS": {
       "minimumSystemVersion": "12.0"
     },
