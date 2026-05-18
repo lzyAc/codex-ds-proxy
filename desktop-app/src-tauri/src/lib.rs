@@ -22,6 +22,7 @@ pub fn run() {
             proxy_manager::stop_proxy,
             proxy_manager::get_proxy_status,
             proxy_manager::get_logs,
+            proxy_manager::get_run_logs,
             proxy_manager::check_api_key,
             config::get_config,
             config::save_config,

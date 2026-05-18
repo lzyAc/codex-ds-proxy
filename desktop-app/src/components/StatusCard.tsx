@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { ProxyStatus, ProxyConfig } from "../types";
 
 interface StatusCardProps {
@@ -17,6 +18,19 @@ export default function StatusCard({
   config,
 }: StatusCardProps) {
   const hasKey = config?.api_key && config.api_key.length > 0;
+  const [runLogs, setRunLogs] = useState<string>("");
+  const [showLogs, setShowLogs] = useState(false);
+
+  const handleViewLogs = async () => {
+    try {
+      const logs: string = await invoke("get_run_logs");
+      setRunLogs(logs);
+      setShowLogs(true);
+    } catch (e) {
+      setRunLogs(String(e));
+      setShowLogs(true);
+    }
+  };
 
   const formatUptime = (seconds: number): string => {
     if (seconds < 60) return `${seconds}秒`;
@@ -108,6 +122,31 @@ export default function StatusCard({
             port={config?.proxy_port || 8787}
           />
         </div>
+      </div>
+
+      {/* 运行日志 */}
+      <div className="card">
+        <div className="card-header flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            运行日志
+          </h3>
+          <button onClick={handleViewLogs} className="btn-secondary text-xs !py-1.5 !px-3">
+            查看
+          </button>
+        </div>
+        {showLogs && (
+          <div className="card-body max-h-80 overflow-y-auto">
+            <pre className="text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-all bg-gray-50 dark:bg-gray-800/50 p-3 rounded-xl">
+              {runLogs}
+            </pre>
+            <button
+              onClick={() => setShowLogs(false)}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 mt-2"
+            >
+              收起
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

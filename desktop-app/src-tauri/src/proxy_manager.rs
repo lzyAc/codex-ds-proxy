@@ -383,6 +383,19 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
     Ok(resp.status().is_success())
 }
 
+// ── 获取运行日志 ──
+
+#[tauri::command]
+pub async fn get_run_logs(app_handle: AppHandle) -> Result<String, String> {
+    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let log_path = data_dir.join("logs").join("proxy.log");
+    if log_path.exists() {
+        std::fs::read_to_string(&log_path).map_err(|e| format!("读取日志失败: {}", e))
+    } else {
+        Ok("暂无运行日志".into())
+    }
+}
+
 // ── 端口检测 ──
 
 async fn is_port_in_use(port: u16) -> bool {
