@@ -124,7 +124,6 @@ pub async fn start_proxy(
     let mut child = Command::new(&python_path)
         .arg(app_script.to_string_lossy().to_string())
         .arg("--no-tray")
-        .arg("--no-browser")
         .arg("--proxy-port")
         .arg(proxy_port.to_string())
         .current_dir(&proxy_dir)
@@ -295,25 +294,25 @@ pub async fn stop_proxy(state: State<'_, AppState>) -> Result<String, String> {
 pub async fn get_proxy_status() -> Result<ProxyStatus, String> {
     let running = PROXY_RUNNING.load(Ordering::SeqCst);
     if running {
+        // 直接检查 8787 端口的 health（不走 Web UI）
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8788/api/proxy/status")
+            .get("http://127.0.0.1:8787/health")
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await;
 
         match resp {
             Ok(r) if r.status().is_success() => {
-                let data: serde_json::Value = r.json().await.unwrap_or_default();
                 Ok(ProxyStatus {
                     running: true,
                     port: 8787,
-                    uptime_seconds: data["uptime_seconds"].as_u64().unwrap_or(0),
-                    total_requests: data["total_requests"].as_u64().unwrap_or(0),
+                    uptime_seconds: 0,
+                    total_requests: 0,
                 })
             }
             _ => Ok(ProxyStatus {
-                running: true,
+                running: false,
                 port: 8787,
                 uptime_seconds: 0,
                 total_requests: 0,

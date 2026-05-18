@@ -39,12 +39,17 @@ export default function App() {
       }));
     });
 
+    // 定时轮询状态（每 2 秒）
+    const interval = setInterval(refreshStatus, 2000);
+
     return () => {
       unlisten1.then((f) => f());
       unlisten2.then((f) => f());
+      clearInterval(interval);
     };
   }, []);
 
+  // eslint-disable-next-line
   // 暗色模式同步
   useEffect(() => {
     if (darkMode) {
