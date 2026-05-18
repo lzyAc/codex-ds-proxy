@@ -2,11 +2,12 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{Emitter, Manager, State};
 use tokio::process::Command;
 use tokio::sync::broadcast;
 
 use crate::AppState;
+use tauri::Manager;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -254,9 +255,8 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
 
 #[cfg(all(desktop, not(target_os = "windows")))]
 pub fn handle_tray_event(
-    _tray: &tauri::tray::TrayIcon,
+    tray: &tauri::tray::TrayIcon,
     event: tauri::tray::TrayIconEvent,
-    app_handle: &AppHandle,
 ) {
     use tauri::tray::MouseButton;
     use tauri::tray::MouseButtonState;
@@ -267,7 +267,7 @@ pub fn handle_tray_event(
         ..
     } = event
     {
-        if let Some(window) = app_handle.get_webview_window("main") {
+        if let Some(window) = tray.app_handle().get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
         }

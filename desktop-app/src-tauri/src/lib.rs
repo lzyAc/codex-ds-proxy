@@ -31,9 +31,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(all(desktop, not(target_os = "windows")))]
             {
-                let handle = app.handle().clone();
-                app.on_tray_icon_event(move |tray, event| {
-                    proxy_manager::handle_tray_event(tray, event, &handle);
+                app.on_tray_icon_event(|tray, event| {
+                    proxy_manager::handle_tray_event(tray, event);
                 });
             }
             Ok(())
