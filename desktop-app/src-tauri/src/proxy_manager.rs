@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::process::Command;
@@ -43,15 +44,32 @@ pub async fn start_proxy(
 
     let proxy_port = port.unwrap_or(8787);
 
-    // 0. 检查端口是否被占用
+    // 准备日志目录
+    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let log_dir = data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).ok();
+    let proxy_log_path = log_dir.join("proxy.log");
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+
+    // 打开日志文件
+    let mut log_file = std::fs::OpenOptions::new()
+        .create(true).append(true).open(&proxy_log_path)
+        .map_err(|e| format!("创建日志文件失败: {}", e))?;
+    writeln!(log_file, "\n=== {} 启动 ===", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
+        .ok();
+
+    // 0. 如果端口被占用，自动杀掉旧进程
     if is_port_in_use(proxy_port).await {
-        return Err(format!(
-            "端口 {} 已被占用，请检查：\n\
-             1. 是否有终端在运行 python3 app.py 或 make start\n\
-             2. 是否已经打开了一个桌面版\n\
-             3. 在终端执行 lsof -i :{} 查看占用进程",
-            proxy_port, proxy_port
-        ));
+        writeln!(log_file, "端口 {} 被占用，尝试释放...", proxy_port).ok();
+        let _ = Command::new("sh")
+            .args(&["-c", &format!("lsof -ti :{} | xargs kill -9 2>/dev/null", proxy_port)])
+            .output()
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if is_port_in_use(proxy_port).await {
+            return Err(format!("端口 {} 被占用且无法自动释放\n请手动执行:\nlsof -ti :{} | xargs kill -9", proxy_port, proxy_port));
+        }
+        writeln!(log_file, "端口 {} 已释放", proxy_port).ok();
     }
 
     // 1. 部署 Python 代理
@@ -60,21 +78,6 @@ pub async fn start_proxy(
     if !app_script.exists() {
         return Err(format!("找不到代理脚本，请重新安装应用\n路径: {}", proxy_dir.display()));
     }
-
-    // 2. 准备日志目录
-    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    let log_dir = data_dir.join("logs");
-    std::fs::create_dir_all(&log_dir).ok();
-    let proxy_log_path = log_dir.join("proxy.log");
-    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
-
-    // 3. 写入启动日志
-    use std::io::Write;
-    let mut log_file = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&proxy_log_path)
-        .map_err(|e| format!("创建日志文件失败: {}", e))?;
-    writeln!(log_file, "\n=== {} 启动 ===", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
-        .ok();
 
     // 4. 生成 config.json
     std::fs::create_dir_all(&config_dir).ok();
