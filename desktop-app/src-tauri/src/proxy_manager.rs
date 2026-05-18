@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::broadcast;
 
@@ -43,14 +44,45 @@ pub async fn start_proxy(
 
     let proxy_port = port.unwrap_or(8787);
 
-    // 1. 部署 Python 代理到应用数据目录
-    let proxy_dir = deploy_proxy_scripts(&app_handle)?;
+    // 0. 检查端口是否被占用
+    if is_port_in_use(proxy_port).await {
+        return Err(format!(
+            "启动失败：端口 {} 已被占用\n\
+             ----------------------------------------\n\
+             可能是另一个代理实例正在运行。\n\
+             请检查：\n\
+             1. 是否有终端窗口在运行 make start\n\
+             2. 是否已经打开了一个桌面版\n\
+             3. 在终端执行：lsof -i :{}\n\
+             查看占用端口的进程",
+            proxy_port, proxy_port
+        ));
+    }
 
-    // 2. 生成 config.json
-    let config_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("获取配置目录失败: {}", e))?;
+    // 1. 部署 Python 代理
+    let proxy_dir = deploy_proxy_scripts(&app_handle)?;
+    let app_script = proxy_dir.join("app.py");
+    if !app_script.exists() {
+        return Err(format!("启动失败：找不到代理脚本\n已部署目录: {}\n请重新安装本应用", proxy_dir.display()));
+    }
+
+    // 2. 设置日志目录
+    let log_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?.join("logs");
+    std::fs::create_dir_all(&log_dir).ok();
+    let proxy_log_path = log_dir.join("proxy.log");
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+
+    // 3. 写运行日志（追加模式）
+    use std::io::Write;
+    let mut log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&proxy_log_path)
+        .map_err(|e| format!("创建日志文件失败: {}", e))?;
+    writeln!(log_file, "\n=== 代理启动 {} ===", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))
+        .map_err(|e| e.to_string())?;
+
+    // 4. 生成 config.json
     std::fs::create_dir_all(&config_dir).ok();
     let config = serde_json::json!({
         "provider": "deepseek",
@@ -82,25 +114,12 @@ pub async fn start_proxy(
         ]
     });
     let config_path = config_dir.join("config.json");
-    std::fs::write(
-        &config_path,
-        serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("保存配置失败: {}", e))?;
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("保存配置失败: {}", e))?;
 
-    // 3. 启动 Python 代理
+    // 5. 启动代理并把 stdout/stderr 重定向到日志文件
+    let log_file_clone = proxy_log_path.clone();
     let python_path = find_python();
-    let app_script = proxy_dir.join("app.py");
-
-    if !app_script.exists() {
-        return Err(format!(
-            "启动失败：找不到代理脚本\n\
-             ----------------------------------------\n\
-             已部署目录: {}\n\
-             请尝试重新安装本应用",
-            proxy_dir.display()
-        ));
-    }
 
     let mut child = Command::new(&python_path)
         .arg(app_script.to_string_lossy().to_string())
@@ -109,9 +128,16 @@ pub async fn start_proxy(
         .arg(proxy_port.to_string())
         .current_dir(&proxy_dir)
         .env("HOME", std::env::var("HOME").unwrap_or_default())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("启动代理失败: {}\n请确保已安装 Python：python3 --version", e))?;
+
+    // 记录 PID 到日志
+    if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_clone) {
+        let _ = writeln!(log, "PID: {:?}", child.id());
+    }
 
     PROXY_RUNNING.store(true, Ordering::SeqCst);
     {
@@ -125,11 +151,33 @@ pub async fn start_proxy(
         *stop_tx = Some(tx.clone());
     }
 
+    // 后台任务：收集子进程输出到日志
     let app_clone = app_handle.clone();
+    let log_path = proxy_log_path.clone();
     tauri::async_runtime::spawn(async move {
+        let _stdout = child.stdout.take();
+        let _stderr = child.stderr.take();
+
+        // 读取 stderr（Python 日志输出到 stderr）
+        if let Some(stderr) = _stderr {
+            use tokio::io::AsyncBufReadExt;
+            let reader = tokio::io::BufReader::new(stderr);
+            let mut lines = reader.lines();
+            let mut log_file = std::fs::OpenOptions::new()
+                .create(true).append(true).open(&log_path).ok();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(ref mut lf) = log_file {
+                    let _ = writeln!(lf, "  {}", line);
+                }
+            }
+        }
+
         let status = child.wait().await;
         PROXY_RUNNING.store(false, Ordering::SeqCst);
         let _ = tx.send(());
+        if let Ok(mut lf) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+            let _ = writeln!(lf, "代理进程退出: {:?}", status.map(|s| s.code()));
+        }
         let _ = app_clone.emit("proxy-stopped", serde_json::json!({
             "code": status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1)
         }));
@@ -138,7 +186,7 @@ pub async fn start_proxy(
     wait_for_proxy(proxy_port).await;
     let _ = app_handle.emit("proxy-started", serde_json::json!({"port": proxy_port}));
 
-    Ok(format!("代理已启动，端口: {}", proxy_port))
+    Ok(format!("代理已启动，端口: {}\n\n运行日志: {}", proxy_port, proxy_log_path.display()))
 }
 
 // ── 部署代理脚本 ──
@@ -333,6 +381,12 @@ pub async fn check_api_key(key: String) -> Result<bool, String> {
         .map_err(|e| format!("API 测试失败: {}", e))?;
 
     Ok(resp.status().is_success())
+}
+
+// ── 端口检测 ──
+
+async fn is_port_in_use(port: u16) -> bool {
+    TcpStream::connect(format!("127.0.0.1:{}", port)).await.is_ok()
 }
 
 // ── 辅助函数 ──
