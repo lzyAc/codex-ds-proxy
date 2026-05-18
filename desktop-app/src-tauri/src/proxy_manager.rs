@@ -93,8 +93,31 @@ pub async fn start_proxy(
     std::fs::write(&config_path, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?)
         .map_err(|e| format!("保存配置失败: {}", e))?;
 
-    // 5. 启动 Python 代理
+    // 5. 安装 Python 依赖
     let python_path = find_python();
+    writeln!(log_file, "检查 Python 依赖...").ok();
+    let pip_result = Command::new(&python_path)
+        .args(&["-m", "pip", "install", "tornado", "requests", "--quiet", "--break-system-packages"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+    match pip_result {
+        Ok(output) if output.status.success() => {
+            writeln!(log_file, "依赖安装成功").ok();
+        }
+        Ok(output) => {
+            let err = String::from_utf8_lossy(&output.stderr);
+            writeln!(log_file, "pip 警告: {}", err).ok();
+            // 非致命错误，继续尝试启动
+        }
+        Err(e) => {
+            writeln!(log_file, "pip 执行失败: {}", e).ok();
+        }
+    }
+
+    // 6. 启动 Python 代理
+    writeln!(log_file, "启动 Python 代理...").ok();
     let mut child = Command::new(&python_path)
         .arg(app_script.to_string_lossy().to_string())
         .arg("--no-tray")
